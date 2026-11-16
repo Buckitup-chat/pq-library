@@ -6,9 +6,11 @@ canonical signed rows, the HTTP transport (key proofs, writes, snapshot and
 live reads, read sessions), two-person dialogs, User Storage slots, vouches
 and venues (origins).
 
-The BuckitUp web app is built on it, and so is a partner's client for a
-BuckitUp server. The wire protocol is described in the backend repository,
-`Buckitup-chat/chat`: `docs/pq/reqs/` and `docs/pq/invariants/`.
+Use the SDK from browser or Node applications with any UI framework. Local
+cryptographic operations work independently of a server. Network operations
+use the documented [service protocol](https://github.com/Buckitup-chat/pq-library/blob/main/docs/protocol.md); consumers can supply
+a server URL and a fetch implementation, or implement the Transport interface
+for a compatible service.
 
 ## Requirements
 
@@ -212,7 +214,7 @@ makes two writers of this library refuse each other, but it does not hold
 when:
 
 - a writer that does not derive the timestamp from the parent (another
-  client, or the BuckitUp app's own storage path) writes on a stale base; or
+  client) writes on a stale base; or
 - two writes from the same base reach the server at the same moment: it reads
   the stored row and updates it in separate statements.
 
@@ -391,18 +393,16 @@ dist-tag; see `CHANGELOG.md`.
 
 ## Documentation
 
-Protocol design, ownership boundaries, release instructions and historical
-implementation reports are indexed in the [SDK documentation](https://github.com/Buckitup-chat/pq-library/blob/main/docs/README.md).
+Protocol design, API usage and release instructions are indexed in the [SDK documentation](https://github.com/Buckitup-chat/pq-library/blob/main/docs/README.md).
 
 ## Develop
 
-The sources live in `src` of [Buckitup-chat/pq-library](https://github.com/Buckitup-chat/pq-library).
 The package has its own test suite in `tests`: protocol,
 identity, vault, rows, transport, dialogs, storage, vouches, origins and the
-cross-implementation conformance vectors (`tests/vectors/pq-conformance.json`,
-shared with the backend). It imports only the package sources (through a local
+versioned conformance vectors (`tests/vectors/pq-conformance.json`). It imports only the package sources (through a local
 alias to `src`), its own helpers and its declared dependencies — no app code,
-Vue or app config. Frontend integration tests remain in chat-frontend; they consume the installed package.
+Vue or application configuration. Applications maintain their own integration
+tests against the installed package.
 
 ```sh
 npm test                            # the SDK suite (vitest, from this directory)
@@ -413,13 +413,12 @@ npm pack --pack-destination /tmp     # the tarball
 npm run check:consumer -- /tmp/buckitup-pq-client-<version>.tgz [--browser]
 ```
 
-`check:consumer` installs the tarball in a temporary project outside the
-workspace, type-checks it (NodeNext, Bundler, and a Node project without the
+`check:consumer` installs the tarball in a temporary project outside this
+repository, type-checks it (NodeNext, Bundler, and a Node project without the
 DOM lib), runs a functional smoke in Node and, with `--browser`, runs the
 dialogs, storage and PRF vault in headless Chromium with a virtual WebAuthn
 authenticator. Releasing: `docs/releasing.md` in this repository.
 
 ## Licence
 
-GPL-3.0-only. See [LICENSE](LICENSE). This follows the original
-[Partner Venue Messaging specification](https://github.com/Buckitup-chat/chat/blob/docs/partner-venue-messaging/docs/pq/reqs/pq_partner_venue_messaging.proposed.md#client-library).
+GPL-3.0-only. See [LICENSE](LICENSE).

@@ -1,8 +1,8 @@
-# Backend dependencies and acceptance limits
+# Service compatibility and integration limits
 
-These are external dependencies of SDK guarantees, not frontend implementation
-tasks. The SDK does not change the server contract. See the
-[partner messaging specification](https://github.com/Buckitup-chat/chat/blob/docs/partner-venue-messaging/docs/pq/reqs/pq_partner_venue_messaging.proposed.md).
+The SDK has its own [versioned protocol contract](protocol.md). These notes
+record limitations observed in the audited BuckitUp-compatible service
+implementation. Other services or adapters must be checked independently.
 
 ## Concurrent versioned writes
 
@@ -24,12 +24,11 @@ server and its limitation test do not constitute live backend acceptance.
 
 - Backend vectors for origins/settings and vouches were missing from the
   audited fixture. SDK-specific fixtures do not replace independent vectors.
-- The specification's Phase 0 peer-vouch freshness and production exposure
-  requirements belong to the backend/deployment owners. Verify them there.
-- Gate effects, retraction and the full second-device VO/V scenario require a
-  permitted test server with known mode, device identity and grants.
+- Verify peer-vouch freshness and production endpoint exposure for the chosen
+  service deployment. These properties cannot be established by SDK unit tests.
+- Gate effects, retraction and second-device identity scenarios require a
+  permitted test service with known mode, device identity and grants.
 - Unknown message parents are not guaranteed to produce `missing_parent`;
   error expectations must follow the actual relation's backend validation.
 
-Consumer UI, guest codes, partner bot and notification operations belong to the
-partner integration. Their absence is not a missing SDK module.
+Consumers own their UI, admission policy, automation and notification delivery.

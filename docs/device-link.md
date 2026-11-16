@@ -3,8 +3,8 @@
 The implementation is [`src/deviceLink.ts`](../src/deviceLink.ts), with sealed
 payload primitives in [`src/vaultEnvelope.ts`](../src/vaultEnvelope.ts). The
 SDK negotiates and authenticates a transfer; the caller owns the relay, UI,
-consent prompts and importing the account. The frontend integration is
-[documented separately](https://github.com/Buckitup-chat/chat-frontend/blob/main/docs/device-link.md).
+consent prompts and importing the account. Each consumer implements that
+integration using its own transport and account lifecycle.
 
 ## Why not a password, and why not WebRTC
 
@@ -44,9 +44,9 @@ few kilobytes need a relay, not a peer-to-peer media stack with TURN servers.
    The existing device's tap is consent to send the account, taken before
    anything is sealed. Two taps is the minimum — consent on one device,
    verification on the other — and neither may be automated away.
-5. The existing device sends the caller-provided backup payload (`exportBackup()` in the frontend) — the same object a local backup
+5. The existing device sends the caller-provided backup payload — the same object a local backup
    file holds, contact key included — sealed as `version || nonce || AES-256-GCM`.
-   The new device unseals it and, **from a tap**, passes it to its import callback (`importBackup` in the frontend) (creating the vault asks for a passkey, which WebKit refuses
+   The new device unseals it and, **from a tap**, passes it to its import callback (creating the vault asks for a passkey, which WebKit refuses
    outside a user gesture) and answers `done`.
 
 Everything after the encapsulation — `backup`, `done`, `abort` — carries an

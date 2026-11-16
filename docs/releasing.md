@@ -1,9 +1,7 @@
 # Releasing @buckitup/pq-client
 
 The first public version is `1.0.0`. Package metadata, changelog and `LICENSE`
-use GPL-3.0-only, following the original
-[Partner Venue Messaging specification](https://github.com/Buckitup-chat/chat/blob/docs/partner-venue-messaging/docs/pq/reqs/pq_partner_venue_messaging.proposed.md#client-library).
-The approved repository split changes source ownership, not the wire protocol.
+use GPL-3.0-only.
 
 ## Toolchain
 
@@ -17,9 +15,9 @@ for trusted publishing. Consumers of the browser bundle do not run Node.
 - Reviewed source on `main`, with SDK CI green and a matching changelog section.
 - GitHub environment `npm-release`, reviewers and branch restrictions, if using
   the workflow publish job. These settings are external to the YAML.
-- Full partner acceptance remains a separate requirement. Current backend
-  concurrency limits are documented in [backend dependencies](backend-dependencies.md);
-  a successful package build does not close them.
+- Verify and document the integrations a release claims to support. Service
+  concurrency limits are documented in [service compatibility](backend-dependencies.md);
+  package builds do not establish server guarantees.
 
 ## Check the exact artifact
 
@@ -37,7 +35,7 @@ npm publish /tmp/pq-pack/buckitup-pq-client-1.0.0.tgz --dry-run --access public 
 ```
 
 The tarball contains `dist`, `LICENSE`, `README.md`, `CHANGELOG.md` and
-`package.json`. The package needs no frontend checkout. Browser verification
+`package.json`. The package builds and installs from this repository alone. Browser verification
 requires Playwright Chromium (`npx playwright install chromium`) and uses a
 virtual PRF authenticator; it does not replace real-device or live-server acceptance.
 
@@ -72,8 +70,7 @@ The existing `NPM_TOKEN` fallback, if used, must have current publish permission
 4. Confirm the registry version, install it in consumers, then record the release tag.
 
 Stable versions use `latest`; `X.Y.Z-rc.N` versions use `next`. Protocol or
-derivation changes require a major version and partner notification, as in the
-specification. Published versions are immutable; release a new version to fix one.
+derivation changes require a major version and notification to consumers. Published versions are immutable; release a new version to fix one.
 
-After first publication, the frontend replaces its temporary tarball dependency
-with the exact npm version and runs its integration checks.
+Consumers install an exact npm version, or a tarball during development, and
+run their own integration checks when upgrading.

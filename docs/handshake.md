@@ -1,11 +1,9 @@
 # Optical handshake v2 (PQ2)
 
 The pure protocol implementation is [`src/handshake.ts`](../src/handshake.ts).
-The following sections retain the original section numbers used by frontend
-rollout references. They define wire messages, identity binding and session
-proofs; the frontend owns camera rendering, transport orchestration, contact
-policy and acceptance on actual devices. See the
-[frontend integration](https://github.com/Buckitup-chat/chat-frontend/blob/main/docs/task-handshake-pq2.md).
+The sections below define wire messages, identity binding and session proofs.
+The caller owns camera rendering, transport orchestration, contact policy and
+acceptance on actual devices. Section numbers remain stable for references.
 
 ## 2. Keys
 
@@ -130,9 +128,8 @@ rest of the session: a later code naming a different `user_hash` or
    ```
 
    The card is the freshest self-signed card row (with `sign_b64`), not the
-   unsigned local registry entry: `EncryptionManagerPQ.signedOwnCard()` takes
-   the fresher of the accepted copy and the live shape's card, each verified,
-   through the lookup an ordinary card update dates itself from. A side with
+   unsigned local registry entry. The caller supplies a verified, current
+   signed card for the identity used to sign the session. A side with
    no card (never published, offline) or whose signature over `M` fails sends
    a refusal in its place, so that the other phone names the real cause:
 
@@ -235,9 +232,9 @@ one public hook and nothing else:
   instead of at gathering-complete: one slow or blocked transport must not
   hold up the code.
 
-The ordering above stays a pure function in the app, tested there (§8). Reading
-`localDescription` through QWBP's private `pc`, as the sandbox does, is not for
-the app.
+Candidate selection belongs to the transport integration and must be tested
+by its consumer. Use the transport adapter's public API rather than depending
+on private connection internals.
 
 **What the relay changes.** Nothing in §4. The relay carries DTLS between the
 phones; the fingerprints in `M` and in the SAS make sure the channel ends at
@@ -248,6 +245,5 @@ the handshake *optically verified*.
 ## Verification
 
 The SDK's `tests/cardVouchesForContactKey.test.ts` checks card/contact binding.
-The frontend's `tests/handshake.test.ts` exercises the installed handshake module
-with the app engine and channel adapter, including transcript and confirmation
-checks. These consumer tests do not duplicate the wire-format implementation.
+Consumers must also exercise the installed handshake module with their own
+engine, transport and UI, including transcript and confirmation checks.

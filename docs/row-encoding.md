@@ -8,10 +8,10 @@ The same bytes arrive in two different encodings, and you can only confuse them
 once per debugging session — the signature simply does not verify, with no hint
 as to why.
 
-| Where | Encoding | Source |
+| Where | Encoding | SDK contract |
 |---|---|---|
-| signature payload | **with** padding (`=`) | `chat/lib/chat/data/integrity.ex:89,93` — `Base.encode64/1`, which is `padding: true` in Elixir |
-| binary columns from `/shapes` | **without** padding | `chat/lib/chat_web/plugs/hex_to_base64_adapter.ex:122,157` — `Base.encode64(bin, padding: false)` |
+| signature payload | **with** padding (`=`) | Canonical binary field encoding in `src/signature.ts` |
+| binary columns from `/shapes` | **without** padding | Transport decoding and normalization in `src/signature.ts` |
 
 **Consequence.** A value taken from a shape cannot go into a signature payload
 as-is — it has to be padded with `=` to a multiple of four. This applies to
@@ -25,7 +25,12 @@ payload is the same whether a row is being signed or verified.
 
 ## Schema ownership
 
-The backend Ecto schemas define wire fields. The SDK generates its table in
-`src/schema.generated.ts` with `scripts/gen-pq-schema.mjs`; use `CHAT_REPO`
-and `npm run schema:check` to verify it. `signRow` and `rowMutation` select
-fields according to that table. Do not infer one relation’s fields from another.
+The released field table is `src/schema.generated.ts`. `signRow` and
+`rowMutation` select fields according to that versioned table. Do not infer
+one relation's fields from another. The conformance tests pin canonical
+payloads and hashes.
+
+`scripts/gen-pq-schema.mjs` is optional compatibility tooling for importing
+Ecto service schemas. Use `CHAT_REPO` and `npm run schema:check` when validating
+that integration. Updating a service schema does not automatically change a
+published SDK; review any generated change against the versioned contract.

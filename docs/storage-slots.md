@@ -31,5 +31,5 @@ remove the backend limitation. See [backend dependencies](backend-dependencies.m
 The `origins` slot has one entry per venue identity. Removing an entry does
 not erase its keys from historical User Storage versions or other devices.
 
-Frontend durable intents, accepted snapshots, contact/recovery merge policies
-and outbox delivery remain in chat-frontend; they are not SDK storage promises.
+Durable intents, accepted snapshots, domain-specific merge policies and outbox
+delivery belong to consumers. The SDK does not provide an offline delivery engine.
