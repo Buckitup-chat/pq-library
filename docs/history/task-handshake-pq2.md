@@ -1,0 +1,402 @@
+# Task: optical handshake v2 (`PQ2`)
+
+Historical document retained from chat-frontend during the repository split.
+Paths, commands, test counts and completion marks describe their recorded
+baseline; use the [current documentation index](../README.md) for the supported
+SDK and [frontend integration](https://github.com/Buckitup-chat/chat-frontend/blob/main/docs/pq-client-integration.md) for the app.
+
+The QR handshake that confirms a contact in person. This document is the
+specification to implement; it replaces the `PQ1` protocol in
+`src/components/engines/QRScannerEngine.vue` outright — no compatibility
+between the two is owed (CLAUDE.md, "no backward compatibility"). The
+handshake is also the trust root for community backup (a recovery share goes
+to a confirmed contact only, `docs/backup-recovery-overview.md`) and for the
+backend's access gating (an optical-handshake contact is a vouch at chain
+distance 1, `chat/docs/pq/reqs/pq_access_gating.done.md`), so what
+"confirmed" means is decided here.
+
+## 1. What changes, and why
+
+| `PQ1` today | `PQ2` | Why |
+|---|---|---|
+| Two ECDSA signatures per side, over the counterpart's bare nonce and over `own user_hash ‖ nonce`, with no protocol label | One ECDSA signature per side over a **transcript** of the whole session under a protocol label | A signature over a bare value the counterpart chose is a signing oracle for the contact key; a transcript signature is valid for this session and this protocol only, and cannot be mixed between two handshakes running in one room |
+| The optical proof is secp256k1 only | After the optical step, each side sends an **ML-DSA-87 signature over the transcript** through the data channel; `confirmed` needs it | A recording adversary with a quantum computer recovers the secp256k1 key from the scanned public key and passes the classical handshake as the victim; the identity is post-quantum and its confirmation has to be too |
+| The data channel opens only when a card is missing; the card received on it is pushed into `allNetworkUsers` unverified | The channel opens on every handshake and carries the card and the post-quantum signature; the card is verified (`verifyUserCard`) and never enters the store from here | An unverified card under a chosen `user_hash` was accepted as that user's; the channel is now what makes the confirmation post-quantum, so it is not optional |
+| STUN servers of a third party, hard-coded | No third-party servers. Our backend's TURN relay (`chat/docs/pq/reqs/pq_turn_relay.proposed.md`) is in every code next to the phone's own addresses, when the backend is reachable (§5a) | A STUN query to a third party leaks the handshake to it. Two phones on mobile data share no network and connect only through a relay; on one network ICE still picks the direct path, and offline the phone's own addresses suffice |
+| No session bound | A session lives 90 s from the nonce being shown; every code names the session | Bounds replay and relay |
+| Nothing for the users to compare | A six-digit code from the transcript, shown next to "Add contact" | Two people can see they completed the same session, not two sessions bridged by a hidden device |
+| `src/libs/QRHandshakeManager.js` (unused) | Deleted | Dead code with its own copy of the protocol |
+
+Unchanged: face to face, front cameras, each device shows its code under its
+own camera and scans the other's; either device may scan first; the person
+taps "Add contact" (or "Contact confirmed") at the end.
+
+## 2. Keys
+
+An account has (`src/libs/EncryptionManagerPQ.js`, `createUserVault`):
+
+| Key | Algorithm | On the card | Role here |
+|---|---|---|---|
+| `sign_skey` / `sign_pkey` | ML-DSA-87 (pk 2,592 B, sig 4,627 B) | `sign_pkey`, `sign_b64` (self-signature) | The identity; `user_hash = 'u_' + hex(SHA3-512(sign_pkey))` |
+| `contact_skey` / `contact_pkey` | secp256k1, compressed (33 B) | `contact_pkey`, `contact_cert = ML-DSA-87.sign(contact_pkey, sign_skey)` | What the QR carries and what signs the optical transcript |
+| `crypt_skey` / `crypt_pkey` | ML-KEM-1024 | `crypt_pkey`, `crypt_cert` | Not used by the handshake |
+
+The QR carries `contact_pkey` because neither the ML-DSA key nor its
+signature fits one code (2,953 bytes at most; sizes above). The certificate is what ties the small key to the identity:
+**a contact is confirmed only when the key proved optically is the one the
+identity's verified card certifies** (`cardVouchesForContactKey`,
+`packages/pq-client/src/verifyCard.ts`) — without that, anyone can show a friend's
+`user_hash` with their own key.
+
+## 3. Messages
+
+Text in QR byte mode. Fields are separated by `:`; binary fields are
+base64url without padding (`toBase64Url`, `packages/pq-client/src/signature.ts`), which
+contains no `:`. `user_hash` travels as is (`u_` + 128 hex). A reader ignores
+any code that does not start with `PQ2:`, and any message whose fixed-length
+fields do not decode to their length.
+
+```
+A  PQ2:A:<user_hash>:<contact_pkey>:<nonce>
+B  PQ2:B:<user_hash>:<contact_pkey>:<nonce>:<sig>
+C  PQ2:C:<sig>:<qwbp>
+D  PQ2:D:<tag>:<qwbp>
+```
+
+| Field | Bytes | Meaning |
+|---|---|---|
+| `user_hash` | 130 chars | The sender's identity |
+| `contact_pkey` | 33 | The sender's handshake key, compressed secp256k1 |
+| `nonce` | 16 | Fresh random per session (`randomBytes(16)`) |
+| `sig` | 64 | ECDSA over the transcript, §4, compact `r‖s` |
+| `tag` | 6 | The first 6 bytes of `SHA-256(T)`. D carries no signature, so the tag is what names its session: a D whose tag is not the reader's is ignored, or a neighbouring pair's D would be fed to the connection |
+| `qwbp` | 55–135 chars | The sender's QWBP bootstrap payload (`QWBPConnection.getQRPayload()`), which carries its DTLS certificate fingerprint and up to six addresses, at most two of them IPv6 (§5a): 34 bytes plus 7 per IPv4 and 19 per IPv6 address |
+
+Sizes: A ≈ 205 bytes, B ≈ 292, C up to ≈ 230, D up to ≈ 150 — QR versions 7–11 at
+error-correction level L, as today.
+
+## 4. Transcript and signatures
+
+Both sides compute the same transcript. The two parties are ordered by their
+`user_hash` strings (byte-wise, they are hex): `lo` and `hi`. The two are
+never equal: a code carrying the reader's own `user_hash` (its own screen in
+a reflection, or a second device of the same account) is ignored at every
+step.
+
+```
+T = "buckitup/handshake/v2\n"
+    || hash_lo (130 B, UTF-8) || pk_lo (33 B) || nonce_lo (16 B)
+    || hash_hi (130 B, UTF-8) || pk_hi (33 B) || nonce_hi (16 B)
+```
+
+Every field is fixed-length, so the encoding is unambiguous; a parser still
+checks each length before hashing (a field that is short lets bytes move
+between fields).
+
+- **Optical signature** (in B and C): `sig = ECDSA_secp256k1(SHA-256(T))` under
+  `contact_skey` — `EncryptionManagerPQ.signContactChallenge(T)` as it stands.
+  Verified under the counterpart's `contact_pkey` from its A or B.
+- **Post-quantum signature** (over the channel, §5):
+  `sigPQ = ML-DSA-87.sign(M, sign_skey)`, with
+  `M = "buckitup/handshake/v2/pq\n" || T || fp_lo (32 B) || fp_hi (32 B)`,
+  where `fp` is each side's DTLS certificate fingerprint — the 32-byte
+  fingerprint in its QWBP payload (`decode(payload).fingerprint`). Verified under `sign_pkey` of
+  the counterpart's verified card.
+- **Short authentication string**:
+  `sas = u32be(hkdfDerive(T || fp_lo || fp_hi, "buckitup/handshake/v2", "sas", 4)) mod 10^6`,
+  six digits, zero-padded, with `hkdfDerive` from `packages/pq-client/src/hkdf.ts` (the
+  derivation device-link uses). It covers the fingerprints on purpose: `T`
+  holds only values shown in plain codes, and the `qwbp` fields are not under
+  the optical signatures, so a relay that swaps the bootstrap payloads would
+  leave a `T`-only code equal on both screens. With the fingerprints in it,
+  the two screens differ whenever the channel does not join the two phones.
+
+## 5. Sequence
+
+Each device runs the same state machine. "Show" means render as the QR under
+the camera; "read" means the camera decoded a code. A device's own data is
+`(hash_me, pk_me, nonce_me)`; the counterpart's, once seen, is bound for the
+rest of the session: a later code naming a different `user_hash` or
+`contact_pkey` is ignored.
+
+1. **Start.** Once the camera runs — a permission prompt takes nothing out
+   of the session — generate `nonce_me`; create the session's QWBP connection
+   (§5a); show **A**; start the 90 s session timer. If this side cannot sign
+   its code (three reads in a row), the session ends with that cause and no
+   result.
+2. **Read A** (state 1 only): bind the counterpart; compute `T`, sign it; show
+   **B**.
+3. **Read B** (states 1–2): bind the counterpart if not bound (both scanned
+   each other's A at once, and both are showing B — the symmetric race);
+   compute `T`; verify `sig` under the counterpart's `contact_pkey`. If it
+   fails, log and stay — a code that does not verify binds nothing. Otherwise
+   sign `T`, take the payload of the session's QWBP connection (§5a), show
+   **C**; mark *optically verified*.
+4. **Read C** in state 2 (this device showed B): verify `sig` as in 3;
+   mark *optically verified*; feed the counterpart's payload to the session's
+   QWBP connection, take own payload, show **D**.
+   **Read C** in state 3 (this device showed C too — both read B at once, the
+   symmetric race): verify `sig` as in 3 and feed the counterpart's payload to
+   the connection this device already has. Both hold both payloads; QWBP picks
+   offerer and answerer by comparing fingerprints, so neither needs a D.
+5. **Read D** (state 3 only — this device showed C): if its `tag` is not this
+   session's, ignore it; otherwise feed the payload to the connection.
+6. **Channel.** QWBP derives the ICE credentials from the scanned
+   fingerprint, and WebRTC's DTLS handshake accepts only a peer whose
+   certificate has that fingerprint — that is what makes the channel the one
+   negotiated on screen. When the data channel opens, each side sends **one**
+   message and expects one. A message that arrives before this side listens
+   — the peer may send the moment the channel opens — is kept for it, not
+   dropped:
+
+   ```json
+   { "type": "PQ2_CONFIRM", "card": <own signed user card row>, "sig": "<base64 sigPQ>" }
+   ```
+
+   The card is the freshest self-signed card row (with `sign_b64`), not the
+   unsigned local registry entry: `EncryptionManagerPQ.signedOwnCard()` takes
+   the fresher of the accepted copy and the live shape's card, each verified,
+   through the lookup an ordinary card update dates itself from. A side with
+   no card (never published, offline) or whose signature over `M` fails sends
+   a refusal in its place, so that the other phone names the real cause:
+
+   ```json
+   { "type": "PQ2_REFUSE", "cause": "no-card" | "no-signature" }
+   ```
+
+   It still checks what the peer sends. With no channel at all, it names its
+   own cause rather than the missing channel.
+
+   On receipt: the card vouches for the bound counterpart and key —
+   `contactKeyVouch`: the card is that `user_hash`'s, verifies, is not a
+   deleted account's, and certifies the key — and
+   `ML-DSA-87.verify(sig, M, card.sign_pkey)` holds. Both, and the
+   counterpart is **confirmed**. Any failure is logged, the
+   handshake ends *optically verified* only with its cause (a refused card, a
+   deleted account, the peer's refusal), and the card is dropped.
+   The camera stops decoding once both payloads are known; nothing is left to
+   read while the channel opens and the ML-DSA work runs.
+7. **Done.** Stop the camera; keep the last code on screen (the counterpart
+   may still be reading it — `docs/handshake_fix_report.md`); show the SAS;
+   emit `completed`:
+
+   ```ts
+   {
+     user_hash: string;
+     contact_pkey: string;     // padded base64, as cards carry it
+     confirmed: boolean;       // step 6 passed
+     card: UserCardRow | null; // the verified card, when confirmed
+     sas: string;              // six digits
+     name: string;             // card.name, else a known card's, else 'Unknown user'
+   }
+   ```
+
+**Channel failure.** If the channel has not opened 15 s after both payloads
+are known, the handshake ends *optically verified*. There is no retry (§5a).
+The UI says so: "Key verified in person; not yet confirmed — check that both
+phones are online, or scan again on a shared Wi-Fi."
+
+**Session end.** After 90 s without completion, or when the person stops the
+scanner, the session is discarded; a new start mints a new nonce. Codes from
+an ended session verify against nothing.
+
+## 5a. Addresses and the relay
+
+**Credentials.** The client asks its backend for relay credentials when the
+add-contact view opens, one screen before the scanner (`pq_turn_relay`
+§ Endpoint):
+- `GET /electric/v1/challenge` (`api.getChallenge()`);
+- then `POST /electric/v1/turn_credentials {user_hash, challenge_id,
+  signature}`.
+
+The signature is ML-DSA-87 over the challenge string's UTF-8 bytes, unpadded
+base64 — the proof ingest and read sessions already send. One helper signs it
+for all of them; a test pins the bytes, since a proof over anything else is
+refused and the handshake then runs without a relay, silently.
+
+The client keeps the credentials in memory and renews them in the background
+once less than 150 s remain (half the lifetime, for a credential that lives
+less than 300 s): a session (90 s, then 15 s for the channel and 10 s for the
+confirmation) must not outlive its credential, or the relay refuses it
+mid-session. At session start it takes what it holds when that lasts the
+session, else waits at most 1 s for the renewal, then takes the freshest
+credential still valid. A failure, an offline phone, `503 turn_unavailable`
+or a timeout all mean no relay, remembered for a minute or a 429's
+`retry_after`: the handshake goes on with the phone's own addresses, which is
+all a shared network needs.
+
+**One connection per session, created at start.** A relay allocation takes up
+to a second or two, so the session creates its QWBP connection in step 1, with
+the relay as its only ICE server, or with none — passed as `iceServers: []`,
+explicitly: QWBP falls back to Google's STUN servers when the option is
+missing. Its `timeout` is at least 3 minutes, longer than any session; QWBP's
+default of 30 s closes a connection while the codes are still being read. Its
+payload is shown first in
+C or D, never before the optical check. There is no retry with other servers:
+they would mean new codes, so a new session.
+
+**What goes into the code.** UDP addresses only, no mDNS names (`….local`:
+19 bytes each, and resolvable only on the same link), at most six:
+- the relay's first, at most two;
+- then one STUN-found address — the relay answers STUN too;
+- then the phone's own (host) addresses;
+- at most two IPv6 addresses in all, so C and D stay below B's density.
+
+A TCP candidate only repeats an address the channel reaches over UDP anyway.
+Relay addresses go in typed as srflx: QWBP's format has no relay type, and the
+other phone only needs where to send.
+
+**What QWBP needs.** QWBP 0.1.0 picks the addresses itself — host ones, then
+the first srflx — and drops relay candidates while parsing. Teaching it to
+parse relay as srflx is not enough: it would still keep one of the STUN
+address and the relays, and the STUN answer arrives first. So the patch adds
+one public hook and nothing else:
+- `selectCandidates(all)` receives every gathered candidate, relay included,
+  with its real type, and returns the list to encode;
+- QWBP's own `maxCandidates` carries the limit, set explicitly to 6: its
+  default is 4;
+- the payload is yielded once the hook's list is complete, or after 2 s,
+  instead of at gathering-complete: one slow or blocked transport must not
+  hold up the code.
+
+The ordering above stays a pure function in the app, tested there (§8). Reading
+`localDescription` through QWBP's private `pc`, as the sandbox does, is not for
+the app.
+
+**What the relay changes.** Nothing in §4. The relay carries DTLS between the
+phones; the fingerprints in `M` and in the SAS make sure the channel ends at
+the phone whose code was scanned. A relay can only drop the channel, which ends
+the handshake *optically verified*.
+
+## 6. What the modal does with the result
+
+`Modal_QrHandshake.vue`, on `completed`:
+
+- `confirmed` and not a contact yet → `confirmContact(user_hash, card, contact_pkey, { name, notes: '', hidden: false })`; toast "Contact added and confirmed", SAS shown.
+- `confirmed` and already a contact → `confirmContact(user_hash, card, contact_pkey)`; toast "Contact confirmed".
+- not `confirmed` → `saveContact(user_hash, { name, notes: '', hidden: false, contact_pkey })` if new; toast "Key verified in person; not yet confirmed" with the reason.
+- The contact page opens by `user_hash`.
+
+`confirmContact` is the only path that sets `confirmed` (`src/store/userPQ.store.js`),
+and it trusts no caller: it takes the verified card and the key the handshake
+proved in person, and checks them itself (`contactKeyVouch`) — the card is
+`user_hash`'s, verifies, is not a deleted account's, and certifies that key —
+refusing when they do not hold. It stores that key and sets
+`confirmedAt` (unix seconds) itself; neither field is among those
+`saveContact` callers may write (`STORED_FIELDS`). A `saveContact` that
+changes the `contact_pkey` of a confirmed contact clears `confirmed`: the
+confirmation was of the old key. The modal does not derive `confirmed`; the
+engine decides, and the modal words the engine's cause when it is not.
+
+The modal keeps its own-account check: a handshake whose counterpart is the
+signed-in account is refused before anything is saved.
+
+The card is not written into `allNetworkUsers` (§1).
+
+## 7. Code layout
+
+- `packages/pq-client/src/handshake.ts` — pure functions, no DOM: `encode`/`parse` for A–D
+  (length-checked), `transcript(a, b)`, `pqMessage(T, fps)`, `sasOf(T, fps)`
+  (`fps`: each party's fingerprint by `user_hash`, ordered as `T` orders
+  them), `sessionTag(T)`, the transport fingerprint via `qwbp`'s own
+  `decode(payload).fingerprint` (no second parser of its format), and the
+  confirm-message check
+  (`checkConfirm(msg, bound, T, fps) → { ok, card } | { ok: false, reason }`).
+- `src/lib/handshake/engine.ts` — the state machine, a plain class over a
+  `ChannelAdapter`, one instance per session; `src/lib/handshake/qwbpChannel.ts`
+  — the adapter over the session's QWBP connection.
+- `src/components/engines/QRScannerEngine.vue` — camera and QR rendering,
+  around one engine per session. A session id is checked after every await,
+  so an old session cannot draw over, stop the camera of, or complete a new
+  one. `completed` carries, beside the fields of §5 step 7, `cause` when not
+  confirmed; the modal shows the result and words the cause.
+- `EncryptionManagerPQ` gains `signHandshakePQ(M)` (ML-DSA-87 under
+  `sign_skey`) beside `signContactChallenge`, and `signedOwnCard()`.
+- `src/store/userPQ.store.js` — `confirmContact(userHash, card, contactPkey, fields?)` as
+  in §6.
+- `src/lib/data/turnCredentials.ts` — fetch, memory cache, expiry and the
+  1 s wait of the relay credentials (§5a). The challenge proof is one helper,
+  `packages/pq-client/src/challengeProof.ts`, for ingest, read sessions and this.
+- `src/lib/data/handshakeAddresses.ts` — the address list (§5a), a pure
+  function, and the `selectCandidates` hook built on it.
+- `qwbp` — patched with the `selectCandidates` hook and the early payload
+  (§5a): `patches/qwbp+0.1.0.patch`, applied by `patch-package` on install,
+  and offered upstream.
+- `scripts/handshake-check/check.mjs` — the engine and the patched QWBP in
+  two Chromium pages over real WebRTC, with no server; with `PQ2_TURN_URL`,
+  `PQ2_TURN_USER` and `PQ2_TURN_PASS`, also through that relay.
+- `sandbox/handshake-pq2` runs this protocol on two phones from its own
+  page, importing `packages/pq-client/src/handshake.ts`; its `frames.ts` is the
+  animated-QR experiment of §10 and stays out of the app.
+
+## 8. Tests
+
+`tests/handshake.test.ts` (node, real crypto — `@noble` runs under node):
+
+- Golden vectors: `T`, `M` and `sas` for two fixed identities and fixed
+  nonces, computed outside the module and pinned byte for byte.
+- Ordering: `transcript(a, b)` equals `transcript(b, a)`.
+- Parsing: every message type round-trips; a field of the wrong length, a
+  missing field, a `PQ1:` code and a non-base64url field are refused.
+- Optical signature: verifies under the sender's key; fails under another key,
+  under another nonce, under another counterpart, under a `PQ1`-style bare
+  nonce signature.
+- Confirm message: passes with a signed card whose `contact_pkey` is the bound
+  key; fails when the card does not verify, when its `contact_pkey` differs
+  (someone showing Alice's hash with their own key), when `sigPQ` is under
+  another identity, when the fingerprints differ.
+
+`tests/qrHandshakeEngine.test.js` (jsdom, camera and QWBP stubbed):
+
+- Two engines driven against each other complete in both orders (A→B→C→D from
+  either side), in the symmetric race (both read A first, then both read B
+  first — both show C, and the channel still opens), and a code carrying the
+  reader's own `user_hash` is ignored.
+- A code from another session (different nonce) is ignored; a code naming a
+  different `user_hash` mid-session is ignored; after 90 s the session is gone.
+- A channel that never opens ends *optically verified*; `completed` carries
+  `confirmed: false` and no card.
+- A confirm message with a foreign card leaves `confirmed: false`.
+- The code's address list: relay first, at most two, then one srflx, then
+  host, UDP only, at most six, at most two IPv6; relay addresses typed as
+  srflx.
+- A D whose tag is another session's is ignored, and the real D is taken.
+- A confirm message that arrives before the engine listens on the channel
+  is still read.
+- A failed or slow credentials request (network error, `503`, no answer
+  within 1 s) starts the session with an empty ICE server list — the
+  `RTCPeerConnection` configuration is checked, not just the option passed.
+- The challenge proof verifies the way the server checks it: over the
+  challenge string's UTF-8 bytes.
+- A session restarted while the old one is still awaiting (camera, QWBP,
+  signing) never draws, stops the camera of, or completes the new one.
+
+Each regression test is run against the `PQ1` engine once before it is
+deleted, to show it fails there (CLAUDE.md, verification standard).
+
+## 9. Acceptance
+
+- Two phones, face to face, on one Wi-Fi: both show "Contact confirmed" and
+  the same six digits within about two seconds of both cameras opening.
+- The same, both on mobile data, the app pointed at a backend with the relay:
+  both show "Contact confirmed" and the same six digits.
+- The same with the backend unreachable (one Wi-Fi, no internet): confirmed
+  over the direct path.
+- Both on mobile data with the relay down: both show "Key verified in
+  person; not yet confirmed".
+- A third phone showing `PQ2:A:` with Alice's `user_hash` and its own key: the
+  scanning phone reaches *optically verified* and then ends not confirmed
+  (card check fails); nothing is saved as confirmed.
+- A recorded B replayed to a fresh session: ignored (nonce differs).
+- `npm test`, `npm run lint`, `npm run build` green.
+
+## 10. Out of scope, noted for later
+
+- **Multi-frame (animated) QR** for the post-quantum signature and the card,
+  so confirmation works with no network at all. The sandbox has a working
+  mode (`sandbox/handshake-pq2`, "Animated QR"); on phones it works but is
+  slow and hard to hold steady, so the app relies on the relay instead.
+- **Vouch token issuance** on confirmation (`pq_vouch_tokens`): the engine's
+  result carries everything a token needs; issuing it is that requirement's
+  work.
+- Radio (NFC) transport of the same messages.
