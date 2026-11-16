@@ -15,7 +15,7 @@
   "sideEffects": false,
   "repository": {
     "type": "git",
-    "url": "https://github.com/Buckitup-chat/pq-library.git"
+    "url": "git+https://github.com/Buckitup-chat/pq-library.git"
   },
   "engines": {
     "node": ">=22.14.0"
