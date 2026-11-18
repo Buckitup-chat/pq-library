@@ -6,6 +6,18 @@ dist-tag.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-18
+
+### Changed
+
+- Clarify SDK ownership, handshake implementation status and service
+  compatibility limits; update standalone-package paths and commands.
+
+### Tests
+
+- Complete migrated handshake, PRF vault lifecycle, identity, row mutation
+  and vouch payload coverage.
+
 ## [1.0.0] - 2026-11-16
 
 First public release.
