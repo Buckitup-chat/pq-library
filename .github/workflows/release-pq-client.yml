@@ -111,7 +111,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.23.1
-          registry-url: https://registry.npmjs.org
 
       - name: npm with trusted publishing
         run: npm install -g npm@11
@@ -122,6 +121,4 @@ jobs:
           path: pack
 
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish "./pack/buckitup-pq-client-${VERSION}.tgz" --tag "$DIST_TAG" --access public --provenance
+        run: npm publish "./pack/buckitup-pq-client-${VERSION}.tgz" --registry=https://registry.npmjs.org/ --tag "$DIST_TAG" --access public --provenance

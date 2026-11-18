@@ -60,7 +60,21 @@ does not establish registry permissions or create the package.
 Configure the npm trusted publisher for `Buckitup-chat/pq-library`, workflow
 `release-pq-client.yml`, environment `npm-release`, with publishing allowed.
 The workflow uses OIDC (`id-token: write`); no npm token is needed in this mode.
-The existing `NPM_TOKEN` fallback, if used, must have current publish permissions.
+In the npm package settings, select GitHub Actions and set:
+
+| Field | Value |
+| --- | --- |
+| Organization or user | `Buckitup-chat` |
+| Repository | `pq-library` |
+| Workflow filename | `release-pq-client.yml` |
+| Environment name | `npm-release` |
+| Allowed action | Direct publishing with `npm publish` |
+
+The publish job intentionally does not configure `NODE_AUTH_TOKEN` or ask
+`setup-node` to generate a token-based registry config. It publishes the verified
+tarball to an explicit npm registry URL using OIDC. Setting `id-token: write`
+in GitHub does not create the trusted publisher on npm; a package maintainer
+must configure that matching publisher before the workflow can publish.
 
 1. Prepare the new version and dated changelog entry in a PR.
 2. Run the release workflow with matching version/tag and `publish: false`.
