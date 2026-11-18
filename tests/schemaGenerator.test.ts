@@ -4,7 +4,7 @@
 // a backend checkout (CHAT_REPO or ../chat) and asserts the committed
 // schema.generated.ts is its exact output. Skipped when no checkout is
 // present — the SDK suite still pins the table through the conformance
-// vectors and the relation checks in packages/pq-client/tests/schema.test.ts;
+// vectors and the relation checks in tests/schema.test.ts;
 // this test adds the backend comparison on machines that have both repos.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';

@@ -8,7 +8,7 @@ dist-tag.
 
 ## [1.0.0] - 2026-11-16
 
-First public release, prepared for publication.
+First public release.
 
 ### Added
 

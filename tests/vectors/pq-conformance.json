@@ -1,6 +1,6 @@
 {
 	"version": 2,
-	"source": "chat-frontend packages/pq-client/tests/conformance.test.ts — regenerate with WRITE_VECTORS=1",
+	"source": "pq-library tests/conformance.test.ts — regenerate with WRITE_VECTORS=1",
 	"payload_cases": [
 		{
 			"name": "user_cards: unicode name, false flag",

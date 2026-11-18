@@ -5,6 +5,8 @@ import { bytesToHex } from '@noble/hashes/utils';
 import {
 	canonicalPayload,
 	rowSignableFields,
+	rowMutation,
+	type RowMutation,
 	signRow,
 	verifyRow,
 	toBase64,
@@ -236,5 +238,114 @@ describe('signRow / verifyRow', () => {
 		expect(verifyMessageRow(message as never, pkey)).toEqual({ status: 'ok' });
 		expect(verifyMessageRow({ ...message, sign_b64: '!!' } as never, pkey))
 			.toEqual({ status: 'invalid', reason: 'bad_signature' });
+	});
+});
+
+// Update mutations must carry `original` with the row's identifying fields —
+// the server routes them to update_changeset (edit/tombstone semantics),
+// while inserts on an existing PK are rejected outright.
+const signedMutation = (relation: string, row: Record<string, unknown>, signSkey: Uint8Array, type: 'insert' | 'update') =>
+	rowMutation(relation, signRow(relation, row, signSkey), type);
+type UpdateMutation = Extract<RowMutation, { type: 'update' }>;
+
+describe('ready-row update shape', () => {
+	const { secretKey } = ml_dsa87.keygen();
+
+	it('builds an update with original identity fields', () => {
+		const m = signedMutation('dialog_message_reactions', {
+			reaction_hash: 'dmr_' + 'cd'.repeat(64),
+			dialog_hash: 'di_' + 'ab'.repeat(64),
+			message_id: 'dmsg_1',
+			message_sign_hash: 'dms_' + 'ef'.repeat(64),
+			reactor_hash: 'u_' + 'ab'.repeat(64),
+			type_b64: '',
+			deleted_flag: true,
+			owner_timestamp: 1785000001,
+		}, secretKey, 'update') as UpdateMutation;
+
+		expect(m.type).toBe('update');
+		expect(m.original).toMatchObject({
+			reaction_hash: expect.stringMatching(/^dmr_/),
+			dialog_hash: expect.stringMatching(/^di_/),
+			message_id: 'dmsg_1',
+		});
+		expect(m.changes.deleted_flag).toBe(true);
+		expect(m.changes.sign_b64).toBeTruthy();
+	});
+
+	it('builds a dialog_messages edit as update with parent_sign_hash', () => {
+		const m = signedMutation('dialog_messages', {
+			message_id: 'dmsg_2',
+			dialog_hash: 'di_' + 'ab'.repeat(64),
+			sender_hash: 'u_' + 'ab'.repeat(64),
+			content_b64: 'bmV3',
+			deleted_flag: false,
+			refs_map_b64: 'cmVmcw',
+			parent_sign_hash: 'dms_' + '12'.repeat(64),
+			owner_timestamp: 1785000002,
+		}, secretKey, 'update') as UpdateMutation;
+
+		expect(m.type).toBe('update');
+		expect(m.original.message_id).toBe('dmsg_2');
+		expect(m.changes.parent_sign_hash).toMatch(/^dms_/);
+	});
+});
+
+// --- user_storage mutation: must match the server's Signable/Integrity impl ---
+// Reference: chat/lib/chat/data/schemas/user_storage.ex (signable_fields drops
+// sign_b64 + sign_hash) and chat/lib/chat/data/integrity.ex (sorted keys,
+// per-suffix encoding). Getting this wrong yields "invalid_signature".
+describe('user_storage mutation signing', () => {
+	const { publicKey, secretKey } = ml_dsa87.keygen();
+	const userHash = 'u_' + 'ab'.repeat(64);
+	const uuid = '00000000-0000-4000-8000-000000000001';
+	const valueB64 = 'aGVsbG8gd29ybGQ=';
+	const ownerTimestamp = 1785000000;
+
+	const serverEncodeField = (key: string, value: unknown): string => {
+		if (value === null || value === undefined) return 'null';
+		if (key.endsWith('_b64') || key.endsWith('_cert') || key.endsWith('_pkey')) return String(value);
+		if (value === true) return 'true';
+		if (value === false) return 'false';
+		return String(value);
+	};
+
+	// Exactly the fields the server keeps, in its sort order, each
+	// u32be(byte length) || UTF-8 value.
+	const serverPayload = (fields: Record<string, unknown>): Uint8Array =>
+		Uint8Array.from(
+			Object.keys(fields)
+				.sort()
+				.flatMap((k) => {
+					const bytes = Array.from(new TextEncoder().encode(serverEncodeField(k, fields[k])));
+					const n = bytes.length;
+					return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff, ...bytes];
+				}),
+		);
+
+	const build = () => signedMutation('user_storage', {
+		user_hash: userHash, uuid, value_b64: valueB64, deleted_flag: false, owner_timestamp: ownerTimestamp, parent_sign_hash: null,
+	}, secretKey, 'insert') as Extract<RowMutation, { type: 'insert' }> & { modified: { sign_b64: string; sign_hash: string } };
+
+	it('derives sign_hash as "uss_" + SHA3-512 of the raw signature', () => {
+		const m = build();
+		const signBytes = Uint8Array.from(atob(m.modified.sign_b64), (c) => c.charCodeAt(0));
+		expect(m.modified.sign_hash).toBe('uss_' + bytesToHex(sha3_512(signBytes)));
+		expect(m.modified.sign_hash).toMatch(/^uss_[0-9a-f]{128}$/);
+	});
+
+	it('signs exactly the field set the server verifies', () => {
+		const m = build();
+		const payload = serverPayload({
+			deleted_flag: false,
+			owner_timestamp: ownerTimestamp,
+			parent_sign_hash: null,
+			user_hash: userHash,
+			uuid,
+			value_b64: valueB64,
+		});
+		const signBytes = Uint8Array.from(atob(m.modified.sign_b64), (c) => c.charCodeAt(0));
+		const ok = ml_dsa87.verify(signBytes, payload, publicKey);
+		expect(ok).toBe(true);
 	});
 });

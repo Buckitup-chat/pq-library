@@ -1,7 +1,8 @@
+import { bytesToHex } from '@noble/hashes/utils';
 import { describe, it, expect, vi } from 'vitest';
 import { generateIdentityKeys, openIdentity, type IdentityHandle } from '@buckitup/pq-client/identity';
 import { adminScope, issueVouch, readVouch, retractVouch, storageScope } from '@buckitup/pq-client/vouch';
-import { rowMutation } from '@buckitup/pq-client/rows';
+import { rowMutation, canonicalPayload } from '@buckitup/pq-client/rows';
 import { createFakePqServer, type FakePqServer } from './helpers/fakePqServer';
 
 const DEVICE = 'Server_test_example';
@@ -108,5 +109,22 @@ describe('issue and retract', () => {
 		const row = stored(server)[0];
 		row.owner_timestamp = 9_000_000_000;
 		expect(await issueVouch({ transport: server.transport, issuer }, kind, guest.userHash)).toMatchObject({ kind: 'unverified' });
+	});
+});
+
+// Migrated payload fixture; this is not an independently supplied backend vector.
+describe('pinned vouch signature payload', () => {
+	const row = {
+		kind: 'device.Server_test_node.storage.read',
+		issuer_hash: 'u_' + 'a'.repeat(128),
+		subject_hash: 'u_' + 'b'.repeat(128),
+		owner_timestamp: 1_700_000_000,
+		deleted_flag: false,
+	};
+	const PINNED_PAYLOAD_HEX =
+		'0000000566616c736500000082755f6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161000000246465766963652e5365727665725f746573745f6e6f64652e73746f726167652e726561640000000a3137303030303030303000000082755f6262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262';
+
+	it('matches the pinned canonical payload bytes', () => {
+		expect(bytesToHex(canonicalPayload(row))).toBe(PINNED_PAYLOAD_HEX);
 	});
 });

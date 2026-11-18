@@ -9,8 +9,7 @@
 // worked because both ends shared the same ad-hoc convention. Decoding keeps
 // that legacy readable; encoding emits only the canonical form.
 //
-// The "quote" envelope is defined here first (the registry in
-// 07_content_polymorphism.md needs a matching entry — flagged in the PR):
+// The "quote" envelope carries the cited revision and its content snapshot:
 //
 //   {"quote": [author_hash, message_id, sign_hash, snapshot]}
 //
@@ -140,7 +139,7 @@ export interface AvatarRemovedPart extends Extensible {
  * history (frontier) and the materialized view of a dialog at a moment this
  * device confirmed. Rides an ordinary message, so the commitments stay
  * inside the ciphertext and the signature/transport come for free — the
- * server sees a normal row. Semantics and derivations: packages/pq-client/src/checkpoint.ts.
+ * server sees a normal row. Semantics and derivations: the SDK checkpoint module.
  */
 export interface CheckpointPart extends Extensible {
 	kind: 'checkpoint';

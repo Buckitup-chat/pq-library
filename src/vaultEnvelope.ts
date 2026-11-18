@@ -78,7 +78,7 @@ const sealKey = (s: Uint8Array): Uint8Array => hkdfDerive(s, VAULT_SEAL_SALT, 's
 /**
  * The sealed form itself: `version(1) || nonce(12) || AES-256-GCM(text)`,
  * base64. The vault row uses it under a key derived from S; a device link
- * (lib/pq/deviceLink) uses it under a key two devices negotiated. One format,
+ * (the SDK deviceLink module) uses it under a key two devices negotiated. One format,
  * so the structural check below cannot exist in one place and not the other.
  */
 export const sealWithKey = async (key: Uint8Array, text: string): Promise<string> => {

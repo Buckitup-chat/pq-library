@@ -18,7 +18,7 @@ import {
 	IdentityKeysError,
 	type IdentityKeys,
 } from '@buckitup/pq-client/identity';
-import { verifyRow, toBase64 } from '@buckitup/pq-client/rows';
+import { verifyRow, toBase64, toBytes } from '@buckitup/pq-client/rows';
 import { deriveIdentity, signedUserCard as derivedCard } from '@buckitup/pq-client/derivedIdentity';
 import type { IngestEachOutcome, Mutation, Signer } from '@buckitup/pq-client/transport';
 
@@ -252,5 +252,18 @@ describe('createIdentitySession', () => {
 		const closed = openIdentity(venue);
 		closed.close();
 		expect(() => session.add(closed)).toThrow(IdentityClosedError);
+	});
+});
+
+// This checks the complete card verifier, including certificates, on wire hex.
+describe('user card binary encodings', () => {
+	it('verifies a card whose binary columns arrived as postgres hex', () => {
+		const card = signedUserCard(vo, { name: 'Owner', ownerTimestamp: 1_700_000_000 });
+		const hexOf = (value: string) => '\\x' + Array.from(toBytes(value), (byte) => byte.toString(16).padStart(2, '0')).join('');
+		const hexCard = { ...card };
+		for (const field of ['sign_pkey', 'crypt_pkey', 'crypt_cert', 'contact_pkey', 'contact_cert', 'sign_b64'] as const) {
+			hexCard[field] = hexOf(card[field]!);
+		}
+		expect(verifyUserCard(hexCard).status).toBe('verified');
 	});
 });

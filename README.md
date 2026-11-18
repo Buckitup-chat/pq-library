@@ -24,12 +24,13 @@ for a compatible service.
 
 ## Install
 
-Version `1.0.0` is prepared for the first public release. The commands below
-apply after it is published. Development and CI use Node 22.23.1 (`.nvmrc`).
+The public package is available on npm. Development and CI use Node 22.23.1
+(`.nvmrc`). Pin the release used by your application and run its integration
+checks when upgrading.
 
 ```sh
-npm install @buckitup/pq-client          # a release
-npm install @buckitup/pq-client@next     # the latest prerelease
+npm install --save-exact @buckitup/pq-client@1.0.0  # the first public release
+npm install --save-exact @buckitup/pq-client@next   # when a prerelease is published
 ```
 
 Each module is its own entry point, `@buckitup/pq-client/<module>`, an ES2022
@@ -209,23 +210,22 @@ on the server.
 The server does not compare a write's parent with the stored row: it refuses
 only a timestamp that is not newer, and after checking the signature it
 replaces `parent_sign_hash` with the stored row's `sign_hash`
-(`chat/lib/chat/data/versioning.ex`, `compare_timestamps`). The rule above
-makes two writers of this library refuse each other, but it does not hold
-when:
+(`chat/lib/chat/data/versioning.ex`, `compare_timestamps`). Parent + 1 rejects
+a stale SDK write once a newer base is visible to validation. It does not
+protect against:
 
 - a writer that does not derive the timestamp from the parent (another
   client) writes on a stale base; or
 - two writes from the same base reach the server at the same moment: it reads
   the stored row and updates it in separate statements.
 
-The later write is then stored with a parent it did not sign: the change it
-overtook is lost from the current row (it stays in `user_storage_versions`),
-and the row no longer verifies. Every read reports it as `unverified` and no
-write is made over it, so nothing is merged silently, but the slot stays
-unusable until it is repaired. A merge guaranteed across devices needs the
-server to refuse a write whose parent is not the stored row (or to keep the
-parent the client signed) in the same statement that updates it. The same
-holds for revisions of `dialog_messages`.
+Depending on the interleaving, a write can overwrite a concurrent change or
+be stored with a parent it did not sign. An altered parent makes the row fail
+verification: reads report `unverified`, and the SDK refuses to write over it
+until it is repaired. A guaranteed merge needs an atomic stale-base rejection
+that preserves signed fields and lets the client re-read and re-apply its
+change. Preserving the signed parent alone does not prevent lost updates.
+The same backend limitation affects revisions of `dialog_messages`.
 
 ### Vouches
 
@@ -284,7 +284,9 @@ the server is not in the slot; if that write was still committed later, the
 slot keeps an entry for a V that was never published.
 
 The handle in a `created` result and in `openOrigin` belongs to the caller,
-who closes it. `updateOrigin` and `setOriginSetting` close the V they load.
+who closes it. `updateOrigin` signs as the owner by default; with
+`signer: 'venue'` it loads V and closes that handle when finished.
+`setOriginSetting` loads V and closes that handle when finished.
 The context's `storage` and `sessions` must belong to `owner`; anything else
 throws `TypeError`. In access mode `trust` pass the owner's read sessions as
 `sessions` (for `origins` and `origin_settings`) and to `createUserStorage`

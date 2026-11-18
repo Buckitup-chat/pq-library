@@ -8,8 +8,9 @@
 // silently changes a payload built by enumeration, and the row then fails
 // verification for a reason that looks like forgery.
 //
-// The lists themselves are generated from the backend Ecto schemas — see
-// scripts/gen-pq-schema.mjs — so the contract has one source of truth.
+// The released lists live in schema.generated.ts. scripts/gen-pq-schema.mjs
+// imports Ecto service schemas for compatibility checks; generated changes
+// must be reviewed against the SDK's versioned contract before release.
 
 import {
 	SIGNABLE,

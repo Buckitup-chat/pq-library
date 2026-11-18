@@ -19,9 +19,8 @@ describe('the wrap key and the address it implies', () => {
 		expect(deriveVaultLocator(s)).toBe(deriveVaultLocator(s));
 	});
 
-	// CLAUDE.md, §Review: a root derivation in packages/pq-client/src is pinned byte for
-	// byte, because changing a salt keeps every behavioural test green while
-	// making every vault already written at the old address unfindable. This
+	// Pin the SDK locator derivation byte for byte: changing a salt can keep
+	// behavioural tests green while making vaults at the old address unfindable. This
 	// literal is the tripwire that forces a conscious version bump.
 	it('derives one fixed address for one fixed key', () => {
 		expect(deriveVaultLocator(new Uint8Array(32).fill(7)))

@@ -5,7 +5,7 @@
 // hashes, HKDF. It has broken twice already on one-byte differences (base64
 // padding, "" vs null), both times caught only against the live server. The
 // vectors pin those bytes as data, so BOTH implementations assert the same
-// file: this test runs them against packages/pq-client/src, and the copy in the backend
+// file: this test runs them against this SDK's src, and the copy in the backend
 // repo (test/fixtures/pq_conformance_vectors.json +
 // test/chat/data/pq_conformance_test.exs) runs them against Chat.Data.Integrity
 // and EnigmaPq.
@@ -14,7 +14,7 @@
 // base64-encoded.
 //
 // Regenerate after a deliberate protocol change:
-//   WRITE_VECTORS=1 npm test -w @buckitup/pq-client -- tests/conformance.test.ts
+//   WRITE_VECTORS=1 npm test -- tests/conformance.test.ts
 // and carry the new file to the backend repo in the same change. A vector
 // difference that was not deliberate is a broken client-server contract.
 import { describe, it, expect } from 'vitest';
@@ -291,7 +291,7 @@ const payloadB64 = (fields: Record<string, FieldSpec>): string => toBase64(canon
 
 const buildVectors = () => ({
 	version: 2,
-	source: 'chat-frontend packages/pq-client/tests/conformance.test.ts — regenerate with WRITE_VECTORS=1',
+	source: 'pq-library tests/conformance.test.ts — regenerate with WRITE_VECTORS=1',
 	payload_cases: payloadCases.map((c) => ({
 		...c,
 		expected_payload: payloadB64(c.fields),

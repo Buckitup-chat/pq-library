@@ -5,6 +5,56 @@ The sections below define wire messages, identity binding and session proofs.
 The caller owns camera rendering, transport orchestration, contact policy and
 acceptance on actual devices. Section numbers remain stable for references.
 
+## Implementation task status
+
+**SDK protocol implementation: completed for `@buckitup/pq-client@1.0.0`.**
+Protocol code and cryptographic unit coverage are present in this repository.
+This status does not declare consumer camera, WebRTC, TURN or phone/deployment
+acceptance complete.
+
+### Agreement and ownership
+
+The original task placed the protocol in frontend
+`packages/pq-client/src/handshake.ts`, with protocol tests in frontend
+`tests/handshake.test.ts`, starting from the two-phone sandbox. The team chose
+a standalone `Buckitup-chat/pq-library` project published to npm so other
+clients can use the same protocol and the SDK can have its own release cycle.
+
+The task and its security requirements remain here with the implementation.
+The repository split changes ownership and installation, not PQ2 wire
+messages, identity binding or acceptance requirements. The sandbox remains a
+consumer experiment; animated QR is not part of the released PQ2 module.
+
+| SDK work | Status | Implementation and coverage |
+| --- | --- | --- |
+| A–D encoding/parsing, lengths and base64url; reject PQ1 | Done | `src/handshake.ts`, `tests/handshake.test.ts` |
+| Transcript ordering, PQ message, session tag and six-digit SAS | Done | `src/handshake.ts`, fixed vectors in `tests/handshake.test.ts` |
+| Optical signature bound to key, nonce and counterpart | Done | `src/handshake.ts`, negative cases in `tests/handshake.test.ts` |
+| Confirmation bound to a verified, non-deleted identity card and certified optical key | Done | `src/handshake.ts`, `src/verifyCard.ts`, `tests/handshake.test.ts`, `tests/cardVouchesForContactKey.test.ts` |
+| Challenge proof over the challenge's UTF-8 bytes | Done | `src/challengeProof.ts`, `tests/handshake.test.ts` |
+
+The SDK protocol checks are run with:
+
+```sh
+npm test -- tests/handshake.test.ts tests/cardVouchesForContactKey.test.ts
+```
+
+### Consumer work and remaining acceptance
+
+Camera rendering, session/channel orchestration, candidate selection, relay
+credential lifecycle and contact/vouch policy remain consumer responsibilities.
+Vouch issuance was a separate access-gating task in the original plan; the
+BuckitUp frontend integrates that policy with `confirmContact`. Protocol
+confirmation supplies identity evidence and does not itself grant server access.
+
+The [frontend integration task](https://github.com/Buckitup-chat/chat-frontend/blob/main/docs/task-handshake-pq2.md)
+owns UI behavior and the retained device acceptance criteria. Its
+[validation checklist](https://github.com/Buckitup-chat/chat-frontend/blob/main/docs/task-handshake-pq2-rollout.md)
+owns browser/WebRTC and deployment checks. These links navigate consumer
+tasks; they do not redefine this SDK's versioned protocol. Those acceptance
+checks require the intended deployment and are not established by local SDK
+tests.
+
 ## 2. Keys
 
 An identity exposes the following certified keys (see [`src/identity.ts`](../src/identity.ts)):
@@ -244,6 +294,8 @@ the handshake *optically verified*.
 
 ## Verification
 
-The SDK's `tests/cardVouchesForContactKey.test.ts` checks card/contact binding.
+The SDK's `tests/handshake.test.ts` checks fixed transcript/PQ-message/SAS
+vectors, parsing, optical signatures, confirmation binding and challenge proofs.
+`tests/cardVouchesForContactKey.test.ts` checks card/contact binding.
 Consumers must also exercise the installed handshake module with their own
 engine, transport and UI, including transcript and confirmation checks.

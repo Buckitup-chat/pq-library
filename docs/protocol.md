@@ -44,3 +44,30 @@ verified for each claimed service integration. Known limitations of the
 currently audited implementation are recorded in
 [service compatibility](backend-dependencies.md). They are constraints of that
 integration.
+
+## Initial requirements and acceptance
+
+The [partner venue messaging requirement](https://github.com/Buckitup-chat/chat/blob/docs/partner-venue-messaging/docs/pq/reqs/pq_partner_venue_messaging.proposed.md)
+defines the eight partner-facing modules and the venue messaging flows. The
+SDK is maintained in this standalone repository following the team's repository
+split decision. Its protocol tests, golden vectors, build and release tooling
+belong here. Applications retain their integration and UI tests; the
+requirement's Phase 1 explicitly requires frontend tests to pass on the SDK.
+
+Known differences from the initial document must remain explicit:
+
+- Multi-identity sessions are managed by `identity.createIdentitySession`.
+  The vault helpers store one identity's key set per vault, while venue keys
+  are stored in the owner's User Storage. The initial module table assigns
+  multi-identity sessions to `vault`.
+- Venue creation stores V's keys before publishing V's card and origin, so an
+  interrupted publication can resume the same identity. The initial flow
+  places key storage last. See the README's origins lifecycle.
+- Guaranteed simultaneous multi-device storage merge and universal
+  `missing_parent` errors are not provided by the audited service contract;
+  see [service compatibility](backend-dependencies.md).
+- Local tests and a published npm package do not establish the partner-server
+  Phase 2 acceptance: second-device replies, content-free notifications and
+  effective write refusal after vouch retraction require that deployment.
+
+These differences are not resolved by relocating tests or documentation.
