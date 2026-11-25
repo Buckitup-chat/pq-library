@@ -29,9 +29,10 @@ npm run lint
 npm test
 npm run build
 mkdir -p /tmp/pq-pack
+VERSION=$(node -p "require('./package.json').version")
 npm pack --pack-destination /tmp/pq-pack
-npm run check:consumer -- /tmp/pq-pack/buckitup-pq-client-1.0.0.tgz --browser
-npm publish /tmp/pq-pack/buckitup-pq-client-1.0.0.tgz --dry-run --access public --tag latest
+npm run check:consumer -- /tmp/pq-pack/buckitup-pq-client-$VERSION.tgz --browser
+npm publish /tmp/pq-pack/buckitup-pq-client-$VERSION.tgz --dry-run --access public --tag latest
 ```
 
 The tarball contains `dist`, `LICENSE`, `README.md`, `CHANGELOG.md` and
@@ -87,4 +88,7 @@ Stable versions use `latest`; `X.Y.Z-rc.N` versions use `next`. Protocol or
 derivation changes require a major version and notification to consumers. Published versions are immutable; release a new version to fix one.
 
 Consumers install an exact npm version, or a tarball during development, and
-run their own integration checks when upgrading.
+run their own integration checks when upgrading. A consumer that integrates an
+unpublished version installs the tarball packed from the reviewed source; once
+the version is published it replaces the tarball with the exact registry
+version, and that change is what it merges.

@@ -46,6 +46,7 @@ and touches no browser storage.
 | `dialogs` | `dialog_hash`, `sender_msg_key`, key wrap and unwrap, content encryption, row builders, publishing one's own `dialog_keys` row once, opening a peer's key and messages against the expected dialog and authors |
 | `storage` | User Storage slots: addressing, encryption, JSON merge, signed writes that a newer base refuses and that are then re-applied on it, the `origins` slot of venue keys |
 | `vouch` | `vouch_tokens` issue and retract, scopes |
+| `contactAccess` | a contact's device-storage access: initial grant after a verified QR confirmation, explicit grant and revoke as durable requests, confirmation through verified rows, the state a client shows |
 | `origins` | venue creation, resume and update, `origin_settings` |
 
 Lower-level modules the eight build on (`signature`, `schema`, `verifyCard`,
@@ -241,6 +242,23 @@ await retractVouch({ transport: server, issuer: bot }, scope, guestHash);
 A vouch for `device.<id>.storage.write.<shape>.<suffix>` grants the whole
 shape: the suffix only makes the row distinct. Whether a write is admitted is
 decided by the server's trust chain.
+
+### Contact access
+
+```ts
+import { contactAccessView, createContactAccess, initialAccessDecision, verifyContactConfirmation } from '@buckitup/pq-client/contactAccess';
+
+const access = createContactAccess(adapters);
+const decision = initialAccessDecision({ confirmation: verifyContactConfirmation(card, peerHash, shownKey), prior, subjectHash: peerHash, contactPkey: shownKey });
+if (decision.grant) await access.request(session, peerHash, true);
+await access.request(session, peerHash, false, deviceId);
+const view = contactAccessView(await access.snapshot(me.userHash, peerHash));
+```
+
+The service owns the rules; the application supplies durable intents, its
+outbox, row verification, shape reads and the device identity as adapters.
+Withdrawing an issuer's grant does not remove access another issuer gave. See
+[contact access](docs/contact-access.md).
 
 ### Venues
 

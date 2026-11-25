@@ -6,6 +6,29 @@ dist-tag.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-19
+
+### Added
+
+- `contactAccess`: a contact's device-storage access as a service over
+  application adapters. `initialAccessDecision` grants after a verified QR
+  confirmation only over a contacts list known to hold no confirmation of the
+  key; `classifySlotPrior` and `contactsPriorOf` tell a readable list, a new
+  slot and an unknown one apart; a list, record or entry of any other
+  shape is unknown and grants nothing. `createContactAccess` stores explicit grants
+  and revokes as durable requests queued per issuer, device and contact,
+  binds a request without a device before signing, sends through the
+  application's outbox, and resolves a request only when both verified rows
+  show it. `contactAccessView` derives the confirmed state, the request in
+  flight and whether the switch may be used.
+
+### Tests
+
+- Behavior of contact access against the fake server: initial and repeated
+  confirmation, revoke and regrant, prior list states including malformed
+  ones, partial outcomes,
+  retries across a reload, confirmation through rows, device isolation.
+
 ## [1.0.1] - 2026-11-18
 
 ### Changed

@@ -7,8 +7,18 @@ import { buildDialogKeyRow, buildMessageRow, dialogHash, openMessageRow } from '
 import { createOrigin, originRow, verifyOriginRow, type CreateOrigin } from '@buckitup/pq-client/origins';
 import { issueVouch, storageScope, vouchRow, type VouchWrite } from '@buckitup/pq-client/vouch';
 import { createUserStorage, deriveStorageKey, mergeJson, openJson, sealJson } from '@buckitup/pq-client/storage';
+import {
+	contactAccessView,
+	createContactAccess,
+	initialAccessDecision,
+	verifyContactConfirmation,
+	verifyVouchRowWith,
+	type ContactAccessIntent,
+	type StoredContactAccessIntent,
+	type ContactAccessWrite,
+} from '@buckitup/pq-client/contactAccess';
 
-const MODULES = ['identity', 'vault', 'rows', 'transport', 'dialogs', 'origins', 'vouch', 'storage'];
+const MODULES = ['identity', 'vault', 'rows', 'transport', 'dialogs', 'origins', 'vouch', 'storage', 'contactAccess'];
 
 const typesOnly = (transport: Transport, me: IdentityHandle) => {
 	const signed: SignedRow<OriginRow> = signRow('origins', {} as OriginRow, new Uint8Array());
@@ -63,7 +73,76 @@ const main = async () => {
 	const gate = classifyRowResult({ index: 0, status: 'error', error: 'not_in_trust_chain' });
 	assert.equal(gate.kind === 'rejected' ? gate.rejection.kind : null, 'gate');
 	assert.equal(typeof createTransport({ baseUrl: 'https://example.invalid/electric/v1' }).ingest, 'function');
+	await contactAccessSmoke(ann, bob);
 	console.log('functional smoke: ok');
+};
+
+const contactAccessSmoke = async (owner: IdentityHandle, peer: IdentityHandle) => {
+	const device = 'Server_x';
+	const rows = new Map<string, Record<string, unknown>>();
+	let served: Map<string, Record<string, unknown>> | null = null;
+	const intents = new Map<string, StoredContactAccessIntent>();
+	let sequence = 0;
+	const ownerCard = owner.userCard({ name: 'Owner', ownerTimestamp: 1 });
+	const access = createContactAccess({
+		readDeviceIdentity: async () => ({ deviceId: device, adminHash: owner.userHash }),
+		readVouchRows: async ({ subjectHash }) => ({ kind: 'rows', rows: [...(served ?? rows).values()].filter((r) => r.subject_hash === subjectHash) }),
+		verifyVouchRow: verifyVouchRowWith(async (userHash) => (userHash === owner.userHash ? String(ownerCard.sign_pkey) : null)),
+		intents: {
+			list: async (_issuer, { includeResolved }) => [...intents.values()].filter((e) => includeResolved || !(e.intent as { resolved?: boolean }).resolved),
+			get: async (id) => intents.get(id) ?? null,
+			enqueue: async (_issuer, intent) => {
+				const id = `i${++sequence}`;
+				intents.set(id, { id, createdAt: sequence, intent });
+				return id;
+			},
+			update: async (id, intent) => (intents.set(id, { ...intents.get(id)!, intent }), true),
+			resolve: async (id, outcome) => {
+				const e = intents.get(id)!;
+				intents.set(id, { ...e, intent: { resolved: true, outcome, purpose: (e.intent as ContactAccessIntent).purpose } });
+				return true;
+			},
+		},
+		outbox: {
+			send: async (write: ContactAccessWrite) => {
+				rows.set(`${write.row.kind}|${write.row.issuer_hash}|${write.row.subject_hash}`, { ...write.row });
+				return { kind: 'accepted', outboxId: `o${++sequence}` };
+			},
+			queued: async () => [],
+			refused: async () => [],
+			discard: async () => {},
+		},
+		lock: async (_key, work) => work(),
+	});
+	const session = { issuerHash: owner.userHash, signingKey: async () => owner.exportKeys().signSkey, stillCurrent: () => true };
+	const peerCard = peer.userCard({ name: 'Peer', ownerTimestamp: 1 });
+	const peerKey = peerCard.contact_pkey;
+	assert.ok(peerKey);
+	const confirmation = verifyContactConfirmation(peerCard, peer.userHash, peerKey);
+	assert.equal(confirmation.ok, true);
+
+	const first = await access.afterConfirmation(session, { confirmation, prior: { state: 'new' }, subjectHash: peer.userHash, contactPkey: peerKey });
+	assert.deepEqual(first, { grant: true, result: 'resolved' });
+	assert.equal(contactAccessView(await access.snapshot(owner.userHash, peer.userHash)).confirmed, 'granted');
+
+	assert.equal(await access.request(session, peer.userHash, false, device), 'resolved');
+	assert.equal(contactAccessView(await access.snapshot(owner.userHash, peer.userHash)).confirmed, 'revoked');
+	const again = initialAccessDecision({
+		confirmation, subjectHash: peer.userHash, contactPkey: peerKey,
+		prior: { state: 'readable', contacts: { [peer.userHash]: { confirmed: true, contact_pkey: peerKey } } },
+	});
+	assert.deepEqual(again, { grant: false, reason: 'already-confirmed' });
+	assert.deepEqual(initialAccessDecision({ confirmation, prior: { state: 'unknown' }, subjectHash: peer.userHash, contactPkey: peerKey }), { grant: false, reason: 'unknown-prior' });
+
+	served = new Map([...rows].map(([k, v]) => [k, { ...v }]));
+	assert.equal(await access.request(session, peer.userHash, true, device), 'retry');
+	assert.deepEqual(contactAccessView(await access.snapshot(owner.userHash, peer.userHash)).pending, { granted: true });
+	served = null;
+	for (const entry of [...intents.values()]) await access.apply(entry, session);
+	const view = contactAccessView(await access.snapshot(owner.userHash, peer.userHash));
+	assert.equal(view.confirmed, 'granted');
+	assert.equal(view.pending, null);
+	console.log('contact access: ok');
 };
 
 await main();
