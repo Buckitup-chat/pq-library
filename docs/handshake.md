@@ -2,8 +2,10 @@
 
 The pure protocol implementation is [`src/handshake.ts`](../src/handshake.ts).
 The sections below define wire messages, identity binding and session proofs.
-The caller owns camera rendering, transport orchestration, contact policy and
-acceptance on actual devices. Section numbers remain stable for references.
+The caller owns camera rendering, transport orchestration, contact persistence
+and acceptance on actual devices. Device-storage contact-access rules are
+provided separately by [`contactAccess`](contact-access.md); the optical
+protocol does not itself grant access. Section numbers remain stable for references.
 
 ## Implementation task status
 
@@ -42,10 +44,14 @@ npm test -- tests/handshake.test.ts tests/cardVouchesForContactKey.test.ts
 ### Consumer work and remaining acceptance
 
 Camera rendering, session/channel orchestration, candidate selection, relay
-credential lifecycle and contact/vouch policy remain consumer responsibilities.
-Vouch issuance was a separate access-gating task in the original plan; the
-BuckitUp frontend integrates that policy with `confirmContact`. Protocol
-confirmation supplies identity evidence and does not itself grant server access.
+credential lifecycle and saving the contact remain consumer responsibilities.
+The BuckitUp frontend's `confirmContact` passes verified identity evidence and
+the stored prior contact state to SDK `contactAccess` for the initial-grant
+decision. The same service handles explicit grant/revoke and derives the
+switch state. The frontend provides durable intent/outbox adapters and keeps
+the switch, confirmation dialog and context guard. Other consumers choose
+whether to use this contact-access policy; protocol confirmation supplies
+identity evidence and does not itself grant server access.
 
 The [frontend integration task](https://github.com/Buckitup-chat/chat-frontend/blob/main/docs/task-handshake-pq2.md)
 owns UI behavior and the retained device acceptance criteria. Its

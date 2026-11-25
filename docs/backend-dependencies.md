@@ -31,4 +31,10 @@ server and its limitation test do not constitute live backend acceptance.
 - Unknown message parents are not guaranteed to produce `missing_parent`;
   error expectations must follow the actual relation's backend validation.
 
-Consumers own their UI, admission policy, automation and notification delivery.
+Consumers own their UI, selection of admission policy, scheduling and
+notification delivery. SDK `contactAccess` supplies the reusable policy for
+QR-confirmed contact access and explicit grant/revoke; consumers connect it
+through infrastructure adapters. Its verified-row state and client-side grant
+preflight do not replace the service's full trust-chain evaluation. See
+[contact access](contact-access.md#server-effect-of-a-revoke) for gate modes,
+owner tombstones and the lifetime of existing read sessions.

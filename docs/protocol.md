@@ -37,6 +37,16 @@ durable pending-write storage, notifications and offline behavior. A successful
 write response is distinct from visibility in a subscription. Unknown write
 outcomes must be reconciled before constructing replacement writes.
 
+For device-storage access following contact confirmation, the SDK provides the
+reusable [`contactAccess`](contact-access.md) policy: initial-grant decisions,
+explicit grant/revoke, device-scoped request reconciliation and view state.
+Applications choose to invoke it, persist contacts, provide its infrastructure
+adapters, schedule retries and render the UI. The service does not move camera
+handling, durable storage or an offline delivery engine into the SDK. Other
+admission flows, such as partner one-time codes, remain consumer policies.
+The backend still determines effective permission through its gates and trust
+chain. This additive API uses the existing signed `vouch_tokens` wire format.
+
 ## Compatibility and releases
 
 Protocol or derivation changes require a major version. Compatibility must be

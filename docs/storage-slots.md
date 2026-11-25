@@ -33,3 +33,9 @@ not erase its keys from historical User Storage versions or other devices.
 
 Durable intents, accepted snapshots, domain-specific merge policies and outbox
 delivery belong to consumers. The SDK does not provide an offline delivery engine.
+
+For contacts, `contactAccess.classifySlotPrior` and `contactsPriorOf` interpret
+the prior supplied by the storage integration. The application reports the
+read value and whether this write generated the slot UUID; the SDK classifies
+that evidence as readable, genuinely new or unknown before deciding on an
+initial grant. A write awaiting recovery does not establish an empty prior.
