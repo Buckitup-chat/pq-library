@@ -6,6 +6,29 @@ dist-tag.
 
 ## [Unreleased]
 
+### Added
+
+- `personas`: identities an account derives from its own keys and an index
+  (HKDF-SHA3-256, salt `buckitup/persona/v1`, info I2OSP(index, 4) || label,
+  labels `sign`, `crypt`, `contact`, `evm`, `meta`). `derivePersona`,
+  `accountPersonas` (several indexes from one extract, `userHash` alone),
+  `personaPrefix`, `isPersonaIndex`, `wipePersona`; indexes 0 to 2³² − 1.
+- `derivedIdentity`: `DerivedAccount`, `IdentityFamily.account`,
+  `deriveAccount` and `wipeAccount` give every key an account holds, the EVM
+  key and meta seed included. Existing derivations and the notes identities
+  are unchanged.
+- `deviceLink`: an invite may name its server, `<room>.<fingerprint>@<origin>`
+  (`LinkInvite.origin`, `isInviteOrigin`). The origin must be a serialized
+  HTTPS origin, or HTTP for `localhost`. Codes without an origin encode and
+  parse as in 1.1.0; the session derivation does not change.
+
+### Tests
+
+- Persona golden vectors for a fixed account at indexes 0, 258 and 2³² − 1,
+  checked against a reference HKDF; index bounds; parent keys left unchanged.
+- Invite codes with and without an origin, refused schemes, hosts and URL
+  forms, damaged rooms and fingerprints.
+
 ## [1.1.0] - 2026-11-19
 
 ### Added

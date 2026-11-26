@@ -17,8 +17,10 @@ import {
 	type StoredContactAccessIntent,
 	type ContactAccessWrite,
 } from '@buckitup/pq-client/contactAccess';
+import { derivePersona, type Persona } from '@buckitup/pq-client/personas';
+import { createOffer, encodeInvite, parseInvite } from '@buckitup/pq-client/deviceLink';
 
-const MODULES = ['identity', 'vault', 'rows', 'transport', 'dialogs', 'origins', 'vouch', 'storage', 'contactAccess'];
+const MODULES = ['identity', 'vault', 'rows', 'transport', 'dialogs', 'origins', 'vouch', 'storage', 'contactAccess', 'personas', 'deviceLink'];
 
 const typesOnly = (transport: Transport, me: IdentityHandle) => {
 	const signed: SignedRow<OriginRow> = signRow('origins', {} as OriginRow, new Uint8Array());
@@ -74,6 +76,11 @@ const main = async () => {
 	assert.equal(gate.kind === 'rejected' ? gate.rejection.kind : null, 'gate');
 	assert.equal(typeof createTransport({ baseUrl: 'https://example.invalid/electric/v1' }).ingest, 'function');
 	await contactAccessSmoke(ann, bob);
+
+	const persona: Persona = derivePersona(ann.exportKeys(), 0);
+	assert.equal(verifyUserCard(openIdentity(persona).userCard({ name: 'Work', ownerTimestamp: 6 })).status, 'verified');
+	const offer = createOffer();
+	assert.deepEqual(parseInvite(encodeInvite({ ...offer, origin: 'https://example.org' })), { room: offer.room, fingerprint: offer.fingerprint, origin: 'https://example.org' });
 	console.log('functional smoke: ok');
 };
 

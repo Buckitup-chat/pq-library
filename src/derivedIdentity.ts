@@ -28,6 +28,11 @@ export interface DerivedIdentity {
 	cardName: string;
 }
 
+export interface DerivedAccount extends Omit<DerivedIdentity, 'cardName'> {
+	evmSkey: Uint8Array;
+	metaSeed: Uint8Array;
+}
+
 /** The parent's keys a derivation starts from. */
 export interface ParentKeys {
 	signSkey: Uint8Array;
@@ -38,6 +43,7 @@ export interface ParentKeys {
 export interface IdentityFamily {
 	/** Every key of the identity with this prefix. */
 	identity(prefix?: Uint8Array): DerivedIdentity;
+	account(prefix?: Uint8Array): DerivedAccount;
 	/** Only its user_hash: the signing key alone, without the KEM and contact keys. */
 	userHash(prefix?: Uint8Array): string;
 	/** Only its signing secret key, a fresh copy the caller wipes after use. */
@@ -71,7 +77,10 @@ export const DERIVED_CARD_NAMES: readonly string[] = [
  * - ML-DSA-87 from a 32-byte seed ("sign"),
  * - ML-KEM-1024 from a 64-byte seed ("crypt"),
  * - secp256k1 from 48 bytes reduced to a scalar in [1, n − 1] ("contact"),
- * - the card name from one byte ("name"), an index into a 64-name list.
+ * - the card name from one byte ("name"), an index into a 64-name list;
+ * and for an account, in place of the card name:
+ * - secp256k1 from 48 bytes, as the contact key ("evm"),
+ * - the meta seed, 32 bytes ("meta").
  */
 export const identityFamily = (parent: ParentKeys, salt: string): IdentityFamily => {
 	const ikm = concatBytes(parent.signSkey, parent.cryptSkey);
@@ -89,22 +98,31 @@ export const identityFamily = (parent: ParentKeys, salt: string): IdentityFamily
 		}
 	};
 	const signKeys = (prefix: Uint8Array) => withSeed(prefix, 'sign', 32, (seed) => ml_dsa87.keygen(seed));
+	const secpKey = (prefix: Uint8Array, label: string) => withSeed(prefix, label, 48, (seed) => secp.etc.hashToPrivateKey(seed));
+	const keys = (prefix: Uint8Array): Omit<DerivedIdentity, 'cardName'> => {
+		const sign = signKeys(prefix);
+		const crypt = withSeed(prefix, 'crypt', 64, (seed) => ml_kem1024.keygen(seed));
+		const contactSkey = secpKey(prefix, 'contact');
+		return {
+			userHash: userHashOf(sign.publicKey),
+			signSkey: sign.secretKey,
+			signPkey: sign.publicKey,
+			cryptSkey: crypt.secretKey,
+			cryptPkey: crypt.publicKey,
+			contactSkey,
+			contactPkey: secp.getPublicKey(contactSkey, true),
+		};
+	};
 	return {
-		identity(prefix = NO_PREFIX) {
-			const sign = signKeys(prefix);
-			const crypt = withSeed(prefix, 'crypt', 64, (seed) => ml_kem1024.keygen(seed));
-			const contactSkey = withSeed(prefix, 'contact', 48, (seed) => secp.etc.hashToPrivateKey(seed));
-			return {
-				userHash: userHashOf(sign.publicKey),
-				signSkey: sign.secretKey,
-				signPkey: sign.publicKey,
-				cryptSkey: crypt.secretKey,
-				cryptPkey: crypt.publicKey,
-				contactSkey,
-				contactPkey: secp.getPublicKey(contactSkey, true),
-				cardName: withSeed(prefix, 'name', 1, (seed) => DERIVED_CARD_NAMES[seed[0] % DERIVED_CARD_NAMES.length]),
-			};
-		},
+		identity: (prefix = NO_PREFIX) => ({
+			...keys(prefix),
+			cardName: withSeed(prefix, 'name', 1, (seed) => DERIVED_CARD_NAMES[seed[0] % DERIVED_CARD_NAMES.length]),
+		}),
+		account: (prefix = NO_PREFIX) => ({
+			...keys(prefix),
+			evmSkey: secpKey(prefix, 'evm'),
+			metaSeed: withSeed(prefix, 'meta', 32, (seed) => seed.slice()),
+		}),
 		userHash: (prefix = NO_PREFIX) => userHashOf(signKeys(prefix).publicKey),
 		signSkey: (prefix = NO_PREFIX) => signKeys(prefix).secretKey,
 		wipe() {
@@ -123,9 +141,24 @@ export const deriveIdentity = (parent: ParentKeys, salt: string, prefix: Uint8Ar
 	}
 };
 
+export const deriveAccount = (parent: ParentKeys, salt: string, prefix: Uint8Array = NO_PREFIX): DerivedAccount => {
+	const family = identityFamily(parent, salt);
+	try {
+		return family.account(prefix);
+	} finally {
+		family.wipe();
+	}
+};
+
 /** Zeroes an identity's secret keys. */
-export const wipeIdentity = (id: DerivedIdentity): void => {
+export const wipeIdentity = (id: Pick<DerivedIdentity, 'signSkey' | 'cryptSkey' | 'contactSkey'>): void => {
 	for (const key of [id.signSkey, id.cryptSkey, id.contactSkey]) key.fill(0);
+};
+
+export const wipeAccount = (account: DerivedAccount): void => {
+	wipeIdentity(account);
+	account.evmSkey.fill(0);
+	account.metaSeed.fill(0);
 };
 
 /**
