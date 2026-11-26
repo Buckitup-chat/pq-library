@@ -6,6 +6,8 @@ dist-tag.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-26
+
 ### Added
 
 - `personas`: identities an account derives from its own keys and an index
