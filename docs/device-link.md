@@ -21,7 +21,8 @@ few kilobytes need a relay, not a peer-to-peer media stack with TURN servers.
 
 1. **New device** — makes an *offer*: a fresh ML-KEM-1024 key pair and a
    128-bit random room id. It shows a QR code carrying the code
-   `<room>.<base64url(sha256(kem_pk))>`, joins `room:<id>` on
+   `<room>.<base64url(sha256(kem_pk))>`, optionally naming its server
+   ([the code](#the-code)), joins `room:<id>` on that server's
    `/webrtc-socket`, and announces its public key there (again whenever someone
    joins).
 2. **Existing device** — the person opens *Account → Add a device* themselves,
@@ -73,6 +74,32 @@ which codes to trust.
 
 Commands carry no free text: an abort is rendered as a fixed sentence, never as
 whatever the other side wrote.
+
+## The code
+
+```
+<room>.<fingerprint>[@<origin>]
+```
+
+- `room`: 22 base64url characters (128 bits); `fingerprint`: 43 base64url
+  characters, `base64url(sha256(kem_pk))`.
+- `origin`: the server whose relay room the showing app waits in. Without it
+  the joining app uses its own server, and an invite without an origin encodes
+  to the two-part code.
+- The origin is accepted only in its serialized URL form (`new URL(o).origin
+  === o`): no credentials, path, query, fragment, default port, trailing slash
+  or upper case. Its scheme is `https:`, or `http:` when the host is
+  `localhost`; no other host has the exception. `isInviteOrigin` tells whether
+  a value qualifies; `encodeInvite` refuses one that does not.
+- The room and fingerprint are checked as before; whitespace around the whole
+  code is forgiven and none inside it. The first `@` ends the fingerprint, and
+  anything after it that is not one such origin, a second `@` included, makes
+  the code invalid (`DeviceLinkError`).
+
+The origin only says where to meet. It is not part of the session derivation:
+the fingerprint and the six-digit comparison prove who is at the other end,
+whichever server relays. Choosing the joining app's own server, and connecting
+to either, is the application's.
 
 
 ## Lifecycle

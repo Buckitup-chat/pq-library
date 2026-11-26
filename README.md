@@ -48,6 +48,7 @@ and touches no browser storage.
 | `vouch` | `vouch_tokens` issue and retract, scopes |
 | `contactAccess` | a contact's device-storage access: initial grant after a verified QR confirmation, explicit grant and revoke as durable requests, confirmation through verified rows, the state a client shows |
 | `origins` | venue creation, resume and update, `origin_settings` |
+| `personas` | identities an account derives from its own keys and an index |
 
 Lower-level modules the eight build on (`signature`, `schema`, `verifyCard`,
 `vaultLock`, `content`, `hkdf`, …) are entry points too.
@@ -259,6 +260,60 @@ The service owns the rules; the application supplies durable intents, its
 outbox, row verification, shape reads and the device identity as adapters.
 Withdrawing an issuer's grant does not remove access another issuer gave. See
 [contact access](docs/contact-access.md).
+
+### Personas
+
+```ts
+import { accountPersonas, derivePersona, wipePersona } from '@buckitup/pq-client/personas';
+import { openIdentity } from '@buckitup/pq-client/identity';
+
+const persona = derivePersona({ signSkey, cryptSkey }, 0); // the account's secret keys, read and not changed
+const card = openIdentity(persona).userCard({ name: 'Work', ownerTimestamp }); // the name the person chose
+wipePersona(persona);
+
+const personas = accountPersonas({ signSkey, cryptSkey }); // several indexes from one HKDF extract
+const hash = personas.userHash(1); // the signing key alone: enough to look a card up
+personas.wipe();
+```
+
+A persona is an identity an account derives from its own keys and an index,
+so every device holding the account derives it again and none of its secret
+keys is stored. Each key comes from HKDF-SHA3-256 with
+IKM = `sign_skey || crypt_skey` of the account, salt `buckitup/persona/v1` and
+info = I2OSP(index, 4) (big-endian) followed by the label:
+
+| Label | Bytes | Key |
+|---|---|---|
+| `sign` | 32 | ML-DSA-87 key generation seed |
+| `crypt` | 64 | ML-KEM-1024 key generation seed |
+| `contact` | 48 | secp256k1 secret key, (value mod (n − 1)) + 1 |
+| `evm` | 48 | secp256k1 secret key, as `contact` |
+| `meta` | 32 | the meta seed itself |
+
+The index is an integer from 0 to 2³² − 1 (`MAX_PERSONA_INDEX`); anything
+else throws a `RangeError` before anything is derived. A persona carries every
+key a backup of an account holds (`DerivedAccount`: the identity's keys,
+`evmSkey`, `metaSeed`) and its index; its card name is the one the person
+chooses. The derivation has golden vectors in `tests/personas.test.ts`. The
+list of an account's personas, the choice of the next index and finding
+personas again from their cards belong to the application.
+
+### Device-link invite
+
+```ts
+import { createOffer, encodeInvite, parseInvite } from '@buckitup/pq-client/deviceLink';
+
+const offer = createOffer();
+const code = encodeInvite({ ...offer, origin: 'https://chat.example.org' }); // or encodeInvite(offer)
+const invite = parseInvite(code); // { room, fingerprint, origin? }
+```
+
+The code is `<room>.<fingerprint>`, followed by `@<origin>` when it names the
+server whose relay room the showing app waits in. A code without `@` means the
+joining app's own server, and an invite without an origin encodes to that
+two-part code. The origin
+must be a URL origin in its serialized form: HTTPS, or HTTP for the host
+`localhost` only. See [device link](docs/device-link.md#the-code).
 
 ### Venues
 

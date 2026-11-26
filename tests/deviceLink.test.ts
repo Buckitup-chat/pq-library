@@ -29,6 +29,54 @@ describe('the invite', () => {
 		expect(() => parseInvite(encodeInvite(createOffer()).slice(1))).toThrow(DeviceLinkError);
 	});
 
+	it('keeps the code without a server as it was', () => {
+		const code = 'AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+		expect(parseInvite(code)).toStrictEqual({ room: 'AAAAAAAAAAAAAAAAAAAAAA', fingerprint: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' });
+		expect(encodeInvite(parseInvite(code))).toBe(code);
+	});
+
+	it('round-trips a code that names the server, HTTPS or localhost', () => {
+		const offer = createOffer();
+		for (const origin of ['https://buckitup.xyz', 'https://chat.example.org:8443', 'https://[::1]', 'http://localhost', 'http://localhost:4000']) {
+			const code = encodeInvite({ ...offer, origin });
+			expect(code).toBe(`${offer.room}.${offer.fingerprint}@${origin}`);
+			expect(parseInvite(` ${code}\n`)).toStrictEqual({ room: offer.room, fingerprint: offer.fingerprint, origin });
+		}
+	});
+
+	it('refuses a server that is not one HTTPS origin, whichever side meets it', () => {
+		const offer = createOffer();
+		const code = encodeInvite(offer);
+		for (const origin of [
+			'http://buckitup.xyz',
+			'http://127.0.0.1:4000', 'http://[::1]', 'http://app.localhost', 'http://localhost.',
+			'wss://buckitup.xyz', 'ftp://buckitup.xyz', 'javascript:alert(1)', 'data:text/plain,x', 'file:///etc/passwd',
+			'https://user:pass@buckitup.xyz', 'https://evil.example@buckitup.xyz',
+			'https://buckitup.xyz/', 'https://buckitup.xyz/api', 'https://buckitup.xyz?x=1', 'https://buckitup.xyz#x',
+			'https://buckitup.xyz:443', 'https://BuckitUp.xyz', 'HTTPS://buckitup.xyz', 'https://bückitup.xyz',
+			'https://', 'buckitup.xyz', ' https://buckitup.xyz', 'https://buckitup.xyz:99999',
+		]) {
+			expect(() => parseInvite(`${code}@${origin}`), origin).toThrow(DeviceLinkError);
+			expect(() => encodeInvite({ ...offer, origin }), origin).toThrow(DeviceLinkError);
+		}
+		expect(() => parseInvite(`${code}@`)).toThrow(DeviceLinkError);
+		expect(() => parseInvite(`${code}@https://a.example@https://b.example`)).toThrow(DeviceLinkError);
+	});
+
+	it('refuses a damaged room or fingerprint before a server', () => {
+		const offer = createOffer();
+		expect(() => parseInvite(`${offer.room.slice(1)}.${offer.fingerprint}@https://buckitup.xyz`)).toThrow(DeviceLinkError);
+		expect(() => parseInvite(`${offer.room}.${offer.fingerprint}x@https://buckitup.xyz`)).toThrow(DeviceLinkError);
+		expect(() => parseInvite(`${offer.room}.${offer.fingerprint.slice(0, -1)}+@https://buckitup.xyz`)).toThrow(DeviceLinkError);
+		expect(() => parseInvite(`${offer.room}.${offer.fingerprint} @https://buckitup.xyz`)).toThrow(DeviceLinkError);
+	});
+
+	it('negotiates the same session whether or not the code names a server', () => {
+		const offer = createOffer();
+		const existing = acceptOffer(parseInvite(encodeInvite({ ...offer, origin: 'https://buckitup.xyz' })), offer.kemPublicKey);
+		expect(openOffer(offer, existing.cipherText).sas).toBe(existing.sas);
+	});
+
 	it('names a fresh room every time', () => {
 		expect(createOffer().room).not.toBe(createOffer().room);
 	});

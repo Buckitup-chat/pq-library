@@ -16,6 +16,7 @@ export class DeviceLinkError extends Error {}
 export interface LinkInvite {
 	room: string;
 	fingerprint: string;
+	origin?: string;
 }
 
 /** What the new device holds while it waits: the invite plus the KEM key pair behind it. */
@@ -44,7 +45,18 @@ export const createOffer = (): LinkOffer => {
 	};
 };
 
-const INVITE = /^([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$/;
+const INVITE = /^([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})(?:@(.+))?$/;
+
+export const isInviteOrigin = (value: string): boolean => {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return false;
+	}
+	if (url.origin !== value) return false;
+	return url.protocol === 'https:' || (url.protocol === 'http:' && url.hostname === 'localhost');
+};
 
 /**
  * The invite is a code, deliberately not a URL. A link that opened the app
@@ -52,14 +64,23 @@ const INVITE = /^([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$/;
  * start the approve screen on the device that has the account - is exactly
  * what a crafted invite sent to a victim must not be able to do. The person
  * with the account starts the flow themselves, from their own account page.
+ *
+ * `<room>.<fingerprint>`, followed by `@<origin>` when the invite names a server.
  */
-export const encodeInvite = (offer: LinkInvite): string => `${offer.room}.${offer.fingerprint}`;
+export const encodeInvite = (offer: LinkInvite): string => {
+	const code = `${offer.room}.${offer.fingerprint}`;
+	if (offer.origin === undefined) return code;
+	if (!isInviteOrigin(offer.origin)) throw new DeviceLinkError('the invite names a server that is not an HTTPS origin');
+	return `${code}@${offer.origin}`;
+};
 
 /** The code as scanned or pasted; whitespace around it is forgiven. */
 export const parseInvite = (text: string): LinkInvite => {
 	const m = INVITE.exec(text.trim());
 	if (!m) throw new DeviceLinkError('not a device-link invite');
-	return { room: m[1], fingerprint: m[2] };
+	if (m[3] === undefined) return { room: m[1], fingerprint: m[2] };
+	if (!isInviteOrigin(m[3])) throw new DeviceLinkError('the invite names a server that is not an HTTPS origin');
+	return { room: m[1], fingerprint: m[2], origin: m[3] };
 };
 
 /**
