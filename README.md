@@ -49,6 +49,7 @@ and touches no browser storage.
 | `contactAccess` | a contact's device-storage access: initial grant after a verified QR confirmation, explicit grant and revoke as durable requests, confirmation through verified rows, the state a client shows |
 | `origins` | venue creation, resume and update, `origin_settings` |
 | `personas` | identities an account derives from its own keys and an index |
+| `fileUpload` | a file's chunks uploaded to a device: signed chunk PUTs, the device's refusals as typed errors, bounded `429` waits, stored chunks bound after verification, the signed `files` manifest |
 
 Lower-level modules the eight build on (`signature`, `schema`, `verifyCard`,
 `vaultLock`, `content`, `hkdf`, …) are entry points too.
@@ -365,6 +366,20 @@ throws `TypeError`. In access mode `trust` pass the owner's read sessions as
 `sessions` (for `origins` and `origin_settings`) and to `createUserStorage`
 (for `user_storage`); `user_cards` and `vouch_tokens` are not gated.
 
+### File upload
+
+```ts
+import { uploadFileChunks } from '@buckitup/pq-client/fileUpload';
+
+const { manifest } = await uploadFileChunks({ apiUrl, bytes, uploaderHash, signSkey, signPkey, fileId, encSecretB64, readChunkRows, signal });
+await commitDurably(manifest);
+```
+
+The application keeps `fileId` with `encSecretB64` before the first PUT, reads
+the device's `file_chunks` rows for `readChunkRows`, and commits the returned
+manifest through its own write path; see
+[File upload](https://github.com/Buckitup-chat/pq-library/blob/main/docs/file-upload.md).
+
 ### Reads
 
 ```ts
@@ -398,11 +413,13 @@ to `subscribeShape` as `sessions`, and for `readShapeOnce` pass
 | No answer, timeout, abort, 5xx, not the API's answer | `TransportError` with `kind` `network`, `timeout`, `aborted`, `http` (with `retryAfter`; a cross-origin page cannot read the header, so it is `null` there), `malformed` |
 | A write of `storage`, `origins`, `dialogs.ensureDialogKey` sent without an answer | `{ kind: 'unknown' }`: the write may have been committed; read before writing again |
 | Row read | `verifyRow` → `ok` or `invalid` with `missing_signature`, `missing_sign_hash`, `sign_hash_mismatch`, `missing_fields`, `bad_signature` |
+| File upload | `FileIdTakenError` (403 `uploader mismatch`), `NoWriteRightsError` (403 `not_in_trust_chain`), `Error` naming the chunk and the HTTP status otherwise, or a stored chunk that does not verify or does not arrive after 409 |
 | Keys | `IdentityKeysError` (`reason` names the key), `IdentityClosedError` |
 | Vault | `PrfUnsupportedError`, `PrfMissingError`, `PasskeyMismatchError`, `VaultLockedError`, `VaultMissingError` |
 
 Nothing is retried behind the caller except the storage, vouch and origin
-reconciliation on a stale base, which is bounded.
+reconciliation on a stale base and a file upload's `429` waits and stored-row
+reads, all bounded.
 
 ### Retries and unknown outcomes
 
