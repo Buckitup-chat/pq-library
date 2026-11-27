@@ -6,6 +6,15 @@ dist-tag.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-27
+
+### Fixed
+
+- `fileUpload`: cancellation ends pending stored-row reads, including readers
+  that ignore the forwarded signal, and is checked after chunk PUTs and before
+  signing the manifest. An aborted upload rejects with the signal's reason
+  instead of returning a manifest or treating cancellation as missing rows.
+
 ## [1.3.0] - 2026-11-27
 
 ### Added

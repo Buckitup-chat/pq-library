@@ -68,12 +68,14 @@ const putChunk = async (
 	signal?: AbortSignal,
 ): Promise<'stored' | 'occupied'> => {
 	for (let attempt = 0; ; attempt++) {
+		signal?.throwIfAborted();
 		const r = await (put.fetch ?? globalThis.fetch)(`${put.apiUrl}/file_chunk/${fileId}/${index}`, {
 			method: 'PUT',
 			headers: { 'Content-Type': 'application/octet-stream', ...headers },
 			body: body as unknown as NonNullable<Parameters<typeof fetch>[1]>['body'],
 			signal,
 		});
+		signal?.throwIfAborted();
 		if (r.ok) return 'stored';
 		if (r.status === 409) return 'occupied';
 		if (r.status === 403) {
@@ -103,7 +105,7 @@ export const uploadFileChunks = async (opts: {
 	/** Minted by the caller and kept from before the first PUT; the same pair resumes an interrupted upload. */
 	fileId: string;
 	encSecretB64: string;
-	readChunkRows: (fileId: string) => Promise<Map<number, Record<string, unknown>>>;
+	readChunkRows: (fileId: string, signal?: AbortSignal) => Promise<Map<number, Record<string, unknown>>>;
 	/**
 	 * Set when chunks may already be on the device (retry after a failure):
 	 * the stored indexes are read first and not sent again. A stored chunk
@@ -126,8 +128,30 @@ export const uploadFileChunks = async (opts: {
 	 * gets a fresh nonce and therefore a different hash — the manifest must bind
 	 * the bytes that are actually on the device. */
 	// An unreachable shape reads as an empty map; the PUTs below are idempotent anyway.
-	const existingChunks = (): Promise<Map<number, Record<string, unknown>>> =>
-		opts.readChunkRows(fileId).catch(() => new Map());
+	const existingChunks = async (): Promise<Map<number, Record<string, unknown>>> => {
+		signal?.throwIfAborted();
+		let onAbort: (() => void) | undefined;
+		try {
+			const read = Promise.resolve().then(() => {
+				signal?.throwIfAborted();
+				return opts.readChunkRows(fileId, signal);
+			});
+			const rows = signal ? await Promise.race([
+				read,
+				new Promise<never>((_, reject) => {
+					onAbort = () => reject(signal.reason);
+					signal.addEventListener('abort', onAbort, { once: true });
+				}),
+			]) : await read;
+			signal?.throwIfAborted();
+			return rows;
+		} catch {
+			signal?.throwIfAborted();
+			return new Map();
+		} finally {
+			if (onAbort) signal?.removeEventListener('abort', onAbort);
+		}
+	};
 
 	const isOwnStoredChunk = (row: Record<string, unknown>, i: number): boolean =>
 		row.file_id === fileId
@@ -205,6 +229,7 @@ export const uploadFileChunks = async (opts: {
 		onProgress?.({ fileId, done: i + 1, total });
 	}
 
+	signal?.throwIfAborted();
 	// Manifest: the trust anchor other devices use to accept chunks.
 	const manifestFields = {
 		chunk_count: total,
