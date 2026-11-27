@@ -6,6 +6,18 @@ dist-tag.
 
 ## [Unreleased]
 
+### Added
+
+- `fileUpload`: `uploadFileChunks` encrypts and signs a file's chunks, PUTs
+  them to `{apiUrl}/file_chunk/{file_id}/{index}` and returns the signed
+  `files` manifest as a mutation for the application to commit. 403
+  `uploader mismatch` throws `FileIdTakenError`, 403 `not_in_trust_chain`
+  throws `NoWriteRightsError`, neither retried; 429 is waited out as
+  `Retry-After` says, bounded and abortable. After 409, and on resume, a stored
+  chunk is bound only when its row names this file, index, uploader and sealed
+  size and its signature verifies under the uploader's `signPkey`; the manifest
+  then binds that stored signature.
+
 ## [1.2.0] - 2026-11-26
 
 ### Added

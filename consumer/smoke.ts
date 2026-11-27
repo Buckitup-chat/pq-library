@@ -19,8 +19,9 @@ import {
 } from '@buckitup/pq-client/contactAccess';
 import { derivePersona, type Persona } from '@buckitup/pq-client/personas';
 import { createOffer, encodeInvite, parseInvite } from '@buckitup/pq-client/deviceLink';
+import { uploadFileChunks } from '@buckitup/pq-client/fileUpload';
 
-const MODULES = ['identity', 'vault', 'rows', 'transport', 'dialogs', 'origins', 'vouch', 'storage', 'contactAccess', 'personas', 'deviceLink'];
+const MODULES = ['identity', 'vault', 'rows', 'transport', 'dialogs', 'origins', 'vouch', 'storage', 'contactAccess', 'personas', 'deviceLink', 'fileUpload'];
 
 const typesOnly = (transport: Transport, me: IdentityHandle) => {
 	const signed: SignedRow<OriginRow> = signRow('origins', {} as OriginRow, new Uint8Array());
@@ -60,6 +61,19 @@ const main = async () => {
 	assert.equal(verifyRow('dialog_keys', keyRow, ann.signPkey).status, 'ok');
 	const opened = await openMessageRow(message, { senderSignPkey: ann.signPkey, senderMsgKey: await bob.unwrapPeerKey(keyRow) });
 	assert.deepEqual(opened.status === 'ok' ? opened.parts : null, [{ kind: 'text', text: 'hello' }]);
+
+	const uploaded = await uploadFileChunks({
+		apiUrl: 'https://device.invalid/electric/v1',
+		fetch: (async () => new Response('{"status":"ok"}')) as typeof fetch,
+		bytes: new Uint8Array([1, 2, 3]),
+		uploaderHash: ann.userHash,
+		signSkey: ann.exportKeys().signSkey,
+		signPkey: ann.signPkey,
+		fileId: 'f_' + '0'.repeat(32),
+		encSecretB64: 'A'.repeat(43) + '=',
+		readChunkRows: async () => new Map(),
+	});
+	assert.equal(verifyRow('files', uploaded.manifest.type === 'insert' ? uploaded.manifest.modified : {}, ann.signPkey).status, 'ok');
 
 	const key = await deriveStorageKey(ann.exportKeys().cryptSkey);
 	assert.deepEqual(await openJson(key, await sealJson(key, { a: 1 })), { a: 1 });
