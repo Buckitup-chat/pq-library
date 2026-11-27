@@ -6,6 +6,8 @@ dist-tag.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-27
+
 ### Added
 
 - `fileUpload`: `uploadFileChunks` encrypts and signs a file's chunks, PUTs
