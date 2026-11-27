@@ -40,7 +40,7 @@ uploadFileChunks(opts): Promise<{ fileId, encSecretB64, size, chunkCount, manife
 | `bytes` | The whole file; an empty file is one sealed chunk |
 | `uploaderHash`, `signSkey`, `signPkey` | The uploading identity: its `user_hash`, the key that signs chunk rows and the manifest, and the key stored rows are verified under |
 | `fileId`, `encSecretB64` | The pair the application keeps |
-| `readChunkRows(fileId)` | The device's `file_chunks` rows of the file by index, as the shape serves them (§ Stored rows) |
+| `readChunkRows(fileId, signal?)` | The device's `file_chunks` rows of the file by index, as the shape serves them (§ Stored rows); pass the signal to the underlying read |
 | `resuming` | Chunks may already be on the device: read them first and skip the ones that verify |
 | `onProgress({ fileId, done, total })` | After each chunk is on the device, in chunks |
 | `onChunkStored(fileId, index, encrypted, dataHash)` | Only for a chunk the device accepted from this call; not awaited |
@@ -71,7 +71,10 @@ just refused, and the refused bytes are not passed to `onChunkStored`.
 
 `readChunkRows` should read a fresh snapshot of the `file_chunks` shape
 (`file_id='…'`). Binary columns may be unpadded base64, `\x` hex or bytes;
-integers may be strings. A read that fails counts as no rows. A row missing
+integers may be strings. A read that fails counts as no rows, except cancellation,
+which rejects the upload with the signal's reason. Cancellation ends the upload's
+wait even if the reader ignores the signal; such an underlying read can still run
+until it settles. A row missing
 after a 409 is read again, three reads two seconds apart, and the upload then
 fails with `chunk {i} of {file} is held on the device, but its row has not
 arrived`.
@@ -110,8 +113,8 @@ const { manifest } = await uploadFileChunks({
 	signPkey: identity.signPkey,
 	fileId,
 	encSecretB64,
-	readChunkRows: async (id) => {
-		const read = await server.readShapeOnce<Record<string, unknown>>('file_chunks', `file_id='${id}'`);
+	readChunkRows: async (id, signal) => {
+		const read = await server.readShapeOnce<Record<string, unknown>>('file_chunks', `file_id='${id}'`, { signal });
 		if (read.kind !== 'rows') throw new Error(`file_chunks read: ${read.kind}`);
 		return new Map(read.rows.map((row) => [Number(row.chunk_index), row]));
 	},

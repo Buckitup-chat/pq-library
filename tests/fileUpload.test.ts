@@ -306,6 +306,59 @@ describe('uploadFileChunks', () => {
 		expect(d.puts).toEqual([]);
 	});
 
+	it('does not return a manifest when cancelled during the last occupied chunk read', async () => {
+		const d = device();
+		const fileId = freshFileId();
+		const encSecretB64 = toBase64(generateEncSecret());
+		await storeFirstChunk(d, ann, fileId, encSecretB64, fileOf(10));
+		const ctrl = new AbortController();
+		const reason = new DOMException('cancelled', 'AbortError');
+		const readChunkRows = async (id: string) => {
+			ctrl.abort(reason);
+			return d.readChunkRows(id);
+		};
+		await expect(run(d, { fileId, encSecretB64, signal: ctrl.signal, readChunkRows }).result).rejects.toBe(reason);
+		expect(d.puts).toEqual([0]);
+	});
+
+	it.each([true, false])('cancels a pending stored-row read even when the reader ignores abort (resuming=%s)', async (resuming) => {
+		const d = device();
+		if (!resuming) d.answer(() => json(409, { error: 'chunk exists' }));
+		const ctrl = new AbortController();
+		const reason = new DOMException('cancelled', 'AbortError');
+		let started!: () => void;
+		let release!: () => void;
+		const reading = new Promise<void>((resolve) => { started = resolve; });
+		const readChunkRows = vi.fn((_id: string, _signal?: AbortSignal) => new Promise<Map<number, Row>>((resolve) => {
+			release = () => resolve(new Map());
+			started();
+		}));
+		let outcome: unknown = 'pending';
+		const { result } = run(d, { resuming, signal: ctrl.signal, readChunkRows });
+		const observed = result.then(() => { outcome = 'resolved'; }, (error) => { outcome = error; });
+		await reading;
+		ctrl.abort(reason);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		try {
+			expect(outcome).toBe(reason);
+			expect(readChunkRows).toHaveBeenCalledWith(expect.any(String), ctrl.signal);
+			expect(d.puts).toEqual(resuming ? [] : [0]);
+		} finally {
+			release();
+			await observed;
+		}
+	});
+
+	it.each([true, false])('does not return a manifest when cancelled on the last progress callback (resuming=%s)', async (resuming) => {
+		const d = device();
+		const fileId = freshFileId();
+		const encSecretB64 = toBase64(generateEncSecret());
+		if (resuming) await storeFirstChunk(d, ann, fileId, encSecretB64, fileOf(10));
+		const ctrl = new AbortController();
+		const reason = new DOMException('cancelled', 'AbortError');
+		await expect(run(d, { fileId, encSecretB64, resuming, signal: ctrl.signal, onProgress: () => ctrl.abort(reason) }).result).rejects.toBe(reason);
+	});
+
 	it('resumes by binding verified stored rows and sending only the rest', async () => {
 		const d = device();
 		const fileId = freshFileId();
